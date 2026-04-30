@@ -1,0 +1,173 @@
+import React, { useState } from 'react';
+import { Mail, Lock, ArrowRight, Github } from 'lucide-react';
+import { useTheme } from '../useTheme';
+
+interface LoginPageProps {
+    onLogin: () => void;
+    onBack: () => void;
+}
+
+export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
+    const { isDark } = useTheme();
+    const [isRegister, setIsRegister] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Mock authentication
+        if (email && password) {
+            onLogin();
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-purple-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900 font-sans text-gray-900 dark:text-gray-100 flex transition-colors duration-300 relative z-0">
+            {/* Decorative Background Blur */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none -z-10">
+                <div className="absolute top-0 right-0 w-[50%] h-[50%] rounded-full bg-blue-400/30 dark:bg-blue-600/5 blur-[120px]"></div>
+                <div className="absolute bottom-0 left-0 w-[50%] h-[50%] rounded-full bg-purple-400/30 dark:bg-purple-600/5 blur-[120px]"></div>
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 relative z-10">
+                <button 
+                    onClick={onBack} 
+                    className="absolute top-8 left-8 text-sm font-bold text-gray-400 hover:text-[#1800ad] dark:hover:text-blue-400 flex items-center gap-2 uppercase tracking-widest transition-colors"
+                >
+                    ← Kembali
+                </button>
+
+                <div className="sm:mx-auto sm:w-full sm:max-w-md">
+                    <div className="flex justify-center">
+                        <img 
+                            src={isDark ? "/JagoNota BW.png" : "/JagoNota.png"} 
+                            alt="JagoNota Logo" 
+                            className="h-12 w-auto object-contain" 
+                        />
+                    </div>
+                    <h2 className="mt-6 text-center text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+                        {isRegister ? 'Buat akun Anda' : 'Masuk ke akun Anda'}
+                    </h2>
+                    <p className="mt-2 text-center text-sm font-medium text-gray-500 dark:text-gray-400">
+                        {isRegister ? 'Sudah punya akun? ' : 'Belum punya akun? '}
+                        <button 
+                            onClick={() => setIsRegister(!isRegister)} 
+                            className="font-bold text-[#1800ad] hover:text-[#120085] dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                        >
+                            {isRegister ? 'Masuk sekarang' : 'Daftar sekarang'}
+                        </button>
+                    </p>
+                </div>
+
+                <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+                    <div className="bg-white/60 dark:bg-gray-800/80 backdrop-blur-sm py-8 px-4 shadow-xl border border-white/60 dark:border-gray-700 sm:rounded-[2rem] sm:px-10 transition-colors duration-300">
+                        <form className="space-y-6" onSubmit={handleSubmit}>
+                            {isRegister && (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Nama Lengkap</label>
+                                    <div className="mt-1">
+                                        <input 
+                                            type="text" 
+                                            required 
+                                            className="appearance-none block w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1800ad] dark:focus:ring-blue-500 focus:border-transparent transition-all"
+                                            placeholder="John Doe"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Email</label>
+                                <div className="mt-1 relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Mail className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                                    </div>
+                                    <input 
+                                        type="email" 
+                                        required 
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="appearance-none block w-full pl-10 px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1800ad] dark:focus:ring-blue-500 focus:border-transparent transition-all"
+                                        placeholder="email@contoh.com"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Password</label>
+                                <div className="mt-1 relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Lock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                                    </div>
+                                    <input 
+                                        type="password" 
+                                        required 
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="appearance-none block w-full pl-10 px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1800ad] dark:focus:ring-blue-500 focus:border-transparent transition-all"
+                                        placeholder="••••••••"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center">
+                                    <input 
+                                        id="remember-me" 
+                                        name="remember-me" 
+                                        type="checkbox" 
+                                        className="h-4 w-4 text-[#1800ad] dark:text-blue-500 focus:ring-[#1800ad] dark:focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                                    />
+                                    <label htmlFor="remember-me" className="ml-2 block text-sm font-medium text-gray-900 dark:text-gray-300">
+                                        Ingat saya
+                                    </label>
+                                </div>
+
+                                {!isRegister && (
+                                    <div className="text-sm">
+                                        <a href="#" className="font-bold text-[#1800ad] hover:text-[#120085] dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                                            Lupa password?
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div>
+                                <button 
+                                    type="submit" 
+                                    className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 text-sm font-bold text-white bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1800ad] dark:focus:ring-offset-gray-900 dark:focus:ring-blue-500 transition-colors"
+                                >
+                                    {isRegister ? 'Daftar' : 'Masuk'} <ArrowRight size={16} />
+                                </button>
+                            </div>
+                        </form>
+
+                        <div className="mt-6">
+                            <div className="relative">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-gray-200 dark:border-gray-600"></div>
+                                </div>
+                                <div className="relative flex justify-center text-sm">
+                                    <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium">Atau lanjutkan dengan</span>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 grid grid-cols-2 gap-3">
+                                <div>
+                                    <button className="w-full inline-flex justify-center items-center py-3 px-4 border border-gray-200 dark:border-gray-600 rounded-xl shadow-sm bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                                        <img className="h-5 w-5" src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" />
+                                    </button>
+                                </div>
+                                <div>
+                                    <button className="w-full inline-flex justify-center items-center py-3 px-4 border border-gray-200 dark:border-gray-600 rounded-xl shadow-sm bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                                        <Github className="h-5 w-5 text-gray-900 dark:text-white" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
