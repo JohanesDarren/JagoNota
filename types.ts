@@ -125,3 +125,4 @@ export const INITIAL_FONTS: FontOption[] = [
   { label: 'Rock Salt (Berantakan)', value: 'font-hand-messy' },
   { label: 'Homemade Apple (Cakar Ayam)', value: 'font-hand-messy-2' },
 ];
+declare module 'imagetracerjs';

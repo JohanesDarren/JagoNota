@@ -3,6 +3,8 @@ import { FontOption, INITIAL_FONTS } from '../types';
 import { Type, Plus, Upload, Loader2, FileImage, CheckCircle, Info, ChevronRight, X } from 'lucide-react';
 import { GoogleGenAI, Type as GenAIType } from '@google/genai';
 import { supabase } from '../utils';
+import * as opentype from 'opentype.js';
+import ImageTracer from 'imagetracerjs';
 
 const inferFontFormat = (url: string) => {
     if (url.endsWith('.woff2')) return 'woff2';
@@ -196,167 +198,218 @@ export default function FontManager({ onBack }: Props) {
         reader.readAsDataURL(file);
     };
 
-    // ── UNIFIED: Main process function — prompt-aware routing ──
+    // ── UNIFIED: Main process function — True TTF Generator ──
     const handleProcessFont = async () => {
         if (!uploadedImage) return;
 
         setIsProcessing(true);
         setUnifiedStep('processing');
 
-        const base64String = uploadedImage.split(',')[1];
-        const mimeType = uploadedImage.split(',')[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
         const geminiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
         const hasPrompt = aiPrompt.trim().length > 0;
 
         try {
-            if (hasPrompt) {
-                // ── PATH A: Prompt diisi → jalankan AI Generator dengan Deep Visual Analysis ──
-                const adjustmentNote = aiPrompt.trim()
-                    ? `User also requested adjustments: "${aiPrompt.trim()}". Apply these to the visual attributes.`
-                    : 'Analyze the handwriting as-is, preserving all unique characteristics.';
+            // 1. AI Parameter Extraction
+            let aiMods = { scaleX: 1, scaleY: 1, slant: 0, weight: 400 };
+            const base64String = uploadedImage.split(',')[1];
+            const mimeType = uploadedImage.split(',')[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
 
-                const promptText = `ANALYZE THE HANDWRITING DEEPLY - Do NOT look for font names. Instead, extract these specific visual attributes:
+            if (geminiKey) {
+                const promptText = `ANALYZE THE HANDWRITING DEEPLY. The user wants to convert this into a working font.
+User Instruction: "${aiPrompt.trim()}"
 
-1. **Weight** (100-900): How thick/bold are the strokes? 100=thin, 400=normal, 700=bold, 900=very heavy
-2. **Slant** (-20 to +20 degrees): Is the handwriting tilted? Positive=right-leaning, negative=left-leaning
-3. **Roundness** (0-100%): How rounded vs sharp are the letterforms? 0=sharp/angular, 100=very rounded
-4. **Irregularity** (0-100%): How messy/inconsistent is the handwriting? 0=perfect, 100=very messy/chaotic
-5. **Letter Spacing** (pixels): Typical space between letters in the sample
+Extract geometric modifiers to apply to the SVG paths:
+- scaleX: Number around 1.0. Increase if user wants wider text.
+- scaleY: Number around 1.0. Increase if user wants taller text.
+- slant: Angle in degrees (-20 to 20). Positive for right-leaning/italic.
+- weight: 100 to 900. 400 is normal. If user wants bold, use 700.
 
-${adjustmentNote}
+Return ONLY valid JSON:
+{"scaleX": <number>, "scaleY": <number>, "slant": <number>, "weight": <number>}`;
 
-Return ONLY valid JSON (no markdown):
-{
-  "weight": <number>,
-  "slant": <number>,
-  "roundness": <number>,
-  "irregularity": <number>,
-  "letterSpacing": <number>,
-  "description": "<brief description of the handwriting style>"
-}`;
-
-                if (geminiKey) {
-                    const ai = new GoogleGenAI({ apiKey: geminiKey });
-                    let attributes: VisualAttributes = {
-                        weight: 400,
-                        slant: 0,
-                        roundness: 50,
-                        irregularity: 30,
-                        letterSpacing: 1
+                const ai = new GoogleGenAI({ apiKey: geminiKey });
+                try {
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.0-flash',
+                        contents: [{ parts: [{ inlineData: { mimeType, data: base64String } }, { text: promptText }] }],
+                    });
+                    const rawText = response.text ?? '';
+                    const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
+                    const jsonStr = jsonMatch ? jsonMatch[0] : rawText.trim();
+                    const json = JSON.parse(jsonStr);
+                    aiMods = {
+                        scaleX: json.scaleX || 1,
+                        scaleY: json.scaleY || 1,
+                        slant: json.slant || 0,
+                        weight: json.weight || 400
                     };
-
-                    try {
-                        const response = await ai.models.generateContent({
-                            model: 'gemini-2.0-flash',
-                            contents: [{ parts: [{ inlineData: { mimeType, data: base64String } }, { text: promptText }] }],
-                        });
-                        const rawText = response.text ?? '';
-                        const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
-                        const jsonStr = jsonMatch ? jsonMatch[0] : rawText.trim();
-                        const json = JSON.parse(jsonStr);
-                        
-                        attributes = {
-                            weight: Math.max(100, Math.min(900, json.weight || 400)),
-                            slant: Math.max(-20, Math.min(20, json.slant || 0)),
-                            roundness: Math.max(0, Math.min(100, json.roundness || 50)),
-                            irregularity: Math.max(0, Math.min(100, json.irregularity || 30)),
-                            letterSpacing: Math.max(0, json.letterSpacing || 1)
-                        };
-                    } catch (apiErr: any) {
-                        console.warn('Gemini API error, using defaults:', apiErr?.message);
-                    }
-
-                    setVisualAttributes(attributes);
-                    const cssStyles = convertAttributesToCss(attributes);
-                    setDynamicInlineStyles(cssStyles);
-                    setGeneratedFontFamilyName('System Sans'); // Use generic fallback
-                    setGeneratedFontName(`AI Font - ${Date.now()}`);
-                    setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
-                } else {
-                    const defaultAttrs: VisualAttributes = { weight: 400, slant: 0, roundness: 50, irregularity: 30, letterSpacing: 1 };
-                    setVisualAttributes(defaultAttrs);
-                    setDynamicInlineStyles(convertAttributesToCss(defaultAttrs));
-                    setGeneratedFontFamilyName('System Sans');
-                    setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
-                }
-
-            } else {
-                // ── PATH B: Prompt kosong → ekstraksi dengan deep visual analysis ──
-                const promptText = `DEEP VISUAL ANALYSIS OF HANDWRITING - Do NOT search for font names. Extract these specific visual characteristics:
-
-1. **Weight** (100-900): Stroke thickness. 100=very thin, 400=normal, 700=bold, 900=extremely heavy
-2. **Slant** (-20 to +20 degrees): Tilt angle. Positive=right-leaning, negative=left-leaning, 0=upright
-3. **Roundness** (0-100%): Letter shape curvature. 0=angular/sharp, 50=mixed, 100=very rounded
-4. **Irregularity** (0-100%): Handwriting inconsistency. 0=perfect, 50=moderately messy, 100=very chaotic
-5. **Letter Spacing** (pixels): Average gap between letters
-
-PRESERVE the handwriting's exact characteristics - flaws, messiness, unique tilt, spacing errors. Do NOT attempt to beautify or normalize.
-
-Return ONLY valid JSON (no markdown):
-{
-  "weight": <number>,
-  "slant": <number>,
-  "roundness": <number>,
-  "irregularity": <number>,
-  "letterSpacing": <number>,
-  "description": "<brief description>"
-}`;
-
-                if (geminiKey) {
-                    try {
-                        const ai = new GoogleGenAI({ apiKey: geminiKey });
-                        const response = await ai.models.generateContent({
-                            model: "gemini-2.0-flash",
-                            contents: {
-                                parts: [
-                                    { inlineData: { mimeType: mimeType, data: base64String } },
-                                    { text: promptText }
-                                ]
-                            },
-                        });
-
-                        if (response.text) {
-                            const jsonMatch = response.text.match(/\{[\s\S]*?\}/);
-                            const jsonStr = jsonMatch ? jsonMatch[0] : response.text.trim();
-                            const json = JSON.parse(jsonStr);
-                            
-                            const attributes: VisualAttributes = {
-                                weight: Math.max(100, Math.min(900, json.weight || 400)),
-                                slant: Math.max(-20, Math.min(20, json.slant || 0)),
-                                roundness: Math.max(0, Math.min(100, json.roundness || 50)),
-                                irregularity: Math.max(0, Math.min(100, json.irregularity || 30)),
-                                letterSpacing: Math.max(0, json.letterSpacing || 1)
-                            };
-                            
-                            setVisualAttributes(attributes);
-                            const cssStyles = convertAttributesToCss(attributes);
-                            setDynamicInlineStyles(cssStyles);
-                            setExtractedFontFamilyInfo('System Sans');
-                        }
-                    } catch (err) {
-                        console.error("Failed to extract visual attributes", err);
-                        const defaultAttrs: VisualAttributes = { weight: 400, slant: 0, roundness: 50, irregularity: 30, letterSpacing: 1.2 };
-                        setVisualAttributes(defaultAttrs);
-                        setDynamicInlineStyles(convertAttributesToCss(defaultAttrs));
-                        setExtractedFontFamilyInfo('System Sans');
-                    }
-                } else {
-                    // Fallback without API key
-                    await new Promise(r => setTimeout(r, 2000));
-                    const defaultAttrs: VisualAttributes = {
-                        weight: 400,
-                        slant: (Math.random() * 10 - 5),
-                        roundness: 50 + Math.random() * 30,
-                        irregularity: 40 + Math.random() * 30,
-                        letterSpacing: 1 + Math.random() * 1.5
-                    };
-                    setVisualAttributes(defaultAttrs);
-                    setDynamicInlineStyles(convertAttributesToCss(defaultAttrs));
-                    setExtractedFontFamilyInfo('System Sans');
+                } catch (err) {
+                    console.warn('Gemini API failed, using defaults', err);
                 }
             }
 
-            // ✅ FORCE RE-RENDER: Update render key with timestamp
+            // 2. Client-side Vectorization
+            const img = new Image();
+            img.src = uploadedImage;
+            await new Promise((resolve, reject) => { 
+                img.onload = resolve; 
+                img.onerror = reject; 
+            });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error("Could not get canvas context");
+            
+            // Clean up image (increase contrast)
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            // Trace image
+            const tracedata = (ImageTracer as any).imagedataToTracedata(imgData, {
+                ltres: 0.1, qtres: 1, pathomit: 8, colorsampling: 0, numberofcolors: 2
+            });
+
+            // Find ink layer (darkest)
+            let darkLayerIdx = 0;
+            let minLightness = 255 * 3;
+            tracedata.palette.forEach((color: any, idx: number) => {
+                const l = color.r + color.g + color.b;
+                if (l < minLightness) { minLightness = l; darkLayerIdx = idx; }
+            });
+            const paths = tracedata.layers[darkLayerIdx].paths;
+
+            // Group paths by Bounding Box (simple letter segmentation)
+            interface BBox { x1: number, y1: number, x2: number, y2: number, paths: any[] }
+            let boxes: BBox[] = [];
+            paths.forEach((p: any) => {
+                let x1 = 99999, y1 = 99999, x2 = -99999, y2 = -99999;
+                p.segments.forEach((seg: any) => {
+                    if (seg.x1 !== undefined) { x1 = Math.min(x1, seg.x1); x2 = Math.max(x2, seg.x1); y1 = Math.min(y1, seg.y1); y2 = Math.max(y2, seg.y1); }
+                    if (seg.x2 !== undefined) { x1 = Math.min(x1, seg.x2); x2 = Math.max(x2, seg.x2); y1 = Math.min(y1, seg.y2); y2 = Math.max(y2, seg.y2); }
+                    if (seg.x3 !== undefined) { x1 = Math.min(x1, seg.x3); x2 = Math.max(x2, seg.x3); y1 = Math.min(y1, seg.y3); y2 = Math.max(y2, seg.y3); }
+                });
+                
+                let merged = false;
+                for (let b of boxes) {
+                    const overlapX = x1 <= b.x2 && x2 >= b.x1;
+                    const overlapY = y1 <= b.y2 && y2 >= b.y1;
+                    if (overlapX && overlapY) {
+                        b.x1 = Math.min(b.x1, x1); b.y1 = Math.min(b.y1, y1);
+                        b.x2 = Math.max(b.x2, x2); b.y2 = Math.max(b.y2, y2);
+                        b.paths.push(p);
+                        merged = true;
+                        break;
+                    }
+                }
+                if (!merged) boxes.push({ x1, y1, x2, y2, paths: [p] });
+            });
+
+            // Sort boxes by Y (rows), then by X
+            boxes.sort((a, b) => {
+                if (Math.abs(a.y1 - b.y1) > 50) return a.y1 - b.y1; // Different rows
+                return a.x1 - b.x1;
+            });
+
+            // 3. Compile TTF Font
+            const notdefGlyph = new opentype.Glyph({
+                name: '.notdef', unicode: 0, advanceWidth: 500, path: new opentype.Path()
+            });
+            const spaceGlyph = new opentype.Glyph({
+                name: 'space', unicode: 32, advanceWidth: 300, path: new opentype.Path()
+            });
+            const fontGlyphs = [notdefGlyph, spaceGlyph];
+
+            const charsToMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".split('');
+            let charIndex = 0;
+
+            boxes.forEach((box) => {
+                const fontPath = new opentype.Path();
+                const boxHeight = box.y2 - box.y1 || 100;
+                const scale = 700 / boxHeight; // Fit to 700 units
+                const boldnessOffset = aiMods.weight > 400 ? (aiMods.weight - 400) / 20 : 0;
+                
+                box.paths.forEach((p: any) => {
+                    p.segments.forEach((seg: any) => {
+                        const applyMods = (x: number, y: number) => {
+                            let nx = (x - box.x1) * scale * aiMods.scaleX;
+                            let ny = ((box.y2 - y) + 100) * scale * aiMods.scaleY; 
+                            if (aiMods.slant) nx += Math.tan(aiMods.slant * Math.PI / 180) * ny;
+                            nx += boldnessOffset; // naive bolding
+                            return [nx, ny];
+                        };
+
+                        if (seg.type === 'L') {
+                            const [x1, y1] = applyMods(seg.x1, seg.y1);
+                            const [x2, y2] = applyMods(seg.x2, seg.y2);
+                            if (fontPath.commands.length === 0) fontPath.moveTo(x1, y1);
+                            fontPath.lineTo(x2, y2);
+                        } else if (seg.type === 'Q') {
+                            const [x1, y1] = applyMods(seg.x1, seg.y1);
+                            const [x2, y2] = applyMods(seg.x2, seg.y2);
+                            const [x3, y3] = applyMods(seg.x3, seg.y3);
+                            if (fontPath.commands.length === 0) fontPath.moveTo(x1, y1);
+                            fontPath.quadraticCurveTo(x2, y2, x3, y3);
+                        }
+                    });
+                });
+
+                const advanceW = (box.x2 - box.x1) * scale * aiMods.scaleX + 50 + boldnessOffset;
+                const char = charsToMap[charIndex] || 'A';
+                
+                if (boxes.length === 1) {
+                    // Single word mode: Map to all ASCII
+                    for(let i=33; i<=126; i++) {
+                        fontGlyphs.push(new opentype.Glyph({
+                            name: String.fromCharCode(i),
+                            unicode: i,
+                            advanceWidth: advanceW,
+                            path: fontPath
+                        }));
+                    }
+                } else {
+                    if (charIndex < charsToMap.length) {
+                        fontGlyphs.push(new opentype.Glyph({
+                            name: char,
+                            unicode: char.charCodeAt(0),
+                            advanceWidth: advanceW,
+                            path: fontPath
+                        }));
+                        charIndex++;
+                    }
+                }
+            });
+
+            const fontName = `JagoNotaAI_${Date.now()}`;
+            const font = new opentype.Font({
+                familyName: fontName,
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: fontGlyphs
+            });
+
+            const arrayBuffer = font.toArrayBuffer();
+            const blob = new Blob([arrayBuffer], { type: 'font/ttf' });
+            const fontLocalUrl = URL.createObjectURL(blob);
+
+            // Update States
+            setGeneratedFontFamilyName(fontName);
+            setFontUrl(fontLocalUrl); // temporary URL for preview
+            setExtractedCSS('');
+            setGeneratedCssText(`font-family: '${fontName}';`);
+            setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
+            
+            // Inject to Document for preview
+            const fontFace = new FontFace(fontName, `url(${fontLocalUrl})`);
+            await fontFace.load();
+            document.fonts.add(fontFace);
+
             setPreviewRenderKey(Date.now());
             setUnifiedStep('preview');
         } catch (error: any) {
@@ -374,25 +427,39 @@ Return ONLY valid JSON (no markdown):
         const saveName = newFontName.trim();
         if (!saveName || !currentUserId) return;
 
-        // ✅ BYPASS FALLBACK: Generate CSS from visual attributes instead of using Google Fonts
-        let cssToSave = '';
-        if (visualAttributes) {
-            // Generate pure CSS from visual attributes (no fallback to Google Fonts)
-            cssToSave = `
-                font-weight: ${visualAttributes.weight};
-                transform: skewX(${visualAttributes.slant}deg);
-                letter-spacing: ${visualAttributes.letterSpacing}px;
-                font-style: ${visualAttributes.slant > 5 ? 'italic' : 'normal'};
-                font-family: system-ui, -apple-system, sans-serif;
-            `.trim();
-        } else {
-            cssToSave = generatedCssText || extractedCSS;
+        let finalFontUrl = fontUrl;
+
+        // Upload local blob URL to Supabase Storage
+        if (fontUrl && fontUrl.startsWith('blob:')) {
+            try {
+                const response = await fetch(fontUrl);
+                const blob = await response.blob();
+                const fileName = `${currentUserId}_${Date.now()}.ttf`;
+                
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('fonts')
+                    .upload(fileName, blob, {
+                        cacheControl: '3600',
+                        upsert: false,
+                        contentType: 'font/ttf'
+                    });
+                    
+                if (uploadError) {
+                    throw new Error("Gagal mengunggah file font: " + uploadError.message);
+                }
+                
+                const { data: publicUrlData } = supabase.storage.from('fonts').getPublicUrl(fileName);
+                finalFontUrl = publicUrlData.publicUrl;
+            } catch (err: any) {
+                alert(err.message);
+                return;
+            }
         }
 
         const { data, error } = await supabase.from('fonts').insert([{
             user_id: currentUserId,
             name: saveName,
-            font_url: fontUrl,
+            font_url: finalFontUrl,
             line_spacing: lineSpacing,
             letter_spacing: letterSpacing
         }]).select().single();
@@ -407,9 +474,9 @@ Return ONLY valid JSON (no markdown):
             label: data.name,
             value: `custom-font-${data.id}`,
             isCustom: true,
-            cssText: cssToSave,
-            fontFamilyName: familyToSave || data.name,
-            font_url: data.font_url,
+            cssText: generatedCssText,
+            fontFamilyName: generatedFontFamilyName || data.name,
+            font_url: finalFontUrl,
             lineSpacing: data.line_spacing,
             letterSpacing: data.letter_spacing,
             user_id: data.user_id,
