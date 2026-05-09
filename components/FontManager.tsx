@@ -227,21 +227,26 @@ Extract geometric modifiers to apply to the SVG paths:
 Return ONLY valid JSON:
 {"scaleX": <number>, "scaleY": <number>, "slant": <number>, "weight": <number>}`;
 
-                const ai = new GoogleGenAI({ apiKey: geminiKey });
                 try {
-                    const response = await ai.models.generateContent({
-                        model: 'gemini-2.0-flash',
-                        contents: [{ parts: [{ inlineData: { mimeType, data: base64String } }, { text: promptText }] }],
-                    });
-                    const rawText = response.text ?? '';
+                    const genAI = new GoogleGenAI(geminiKey);
+                    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                    
+                    const result = await model.generateContent([
+                        { text: promptText },
+                        { inlineData: { mimeType, data: base64String } }
+                    ]);
+                    
+                    const response = await result.response;
+                    const rawText = response.text();
+                    
                     const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
                     const jsonStr = jsonMatch ? jsonMatch[0] : rawText.trim();
                     const json = JSON.parse(jsonStr);
                     aiMods = {
-                        scaleX: json.scaleX || 1,
-                        scaleY: json.scaleY || 1,
-                        slant: json.slant || 0,
-                        weight: json.weight || 400
+                        scaleX: Number(json.scaleX) || 1,
+                        scaleY: Number(json.scaleY) || 1,
+                        slant: Number(json.slant) || 0,
+                        weight: Number(json.weight) || 400
                     };
                 } catch (err) {
                     console.warn('Gemini API failed, using defaults', err);
@@ -281,7 +286,7 @@ Return ONLY valid JSON:
                 const l = color.r + color.g + color.b;
                 if (l < minLightness) { minLightness = l; darkLayerIdx = idx; }
             });
-            const paths = tracedata.layers[darkLayerIdx].paths;
+            const paths = tracedata.layers[darkLayerIdx] || [];
 
             // Group paths by Bounding Box (simple letter segmentation)
             interface BBox { x1: number, y1: number, x2: number, y2: number, paths: any[] }
@@ -289,10 +294,16 @@ Return ONLY valid JSON:
             paths.forEach((p: any) => {
                 let x1 = 99999, y1 = 99999, x2 = -99999, y2 = -99999;
                 p.segments.forEach((seg: any) => {
-                    if (seg.x1 !== undefined) { x1 = Math.min(x1, seg.x1); x2 = Math.max(x2, seg.x1); y1 = Math.min(y1, seg.y1); y2 = Math.max(y2, seg.y1); }
-                    if (seg.x2 !== undefined) { x1 = Math.min(x1, seg.x2); x2 = Math.max(x2, seg.x2); y1 = Math.min(y1, seg.y2); y2 = Math.max(y2, seg.y2); }
-                    if (seg.x3 !== undefined) { x1 = Math.min(x1, seg.x3); x2 = Math.max(x2, seg.x3); y1 = Math.min(y1, seg.y3); y2 = Math.max(y2, seg.y3); }
+                    if (typeof seg.x1 === 'number') { x1 = Math.min(x1, seg.x1); x2 = Math.max(x2, seg.x1); y1 = Math.min(y1, seg.y1); y2 = Math.max(y2, seg.y1); }
+                    if (typeof seg.x2 === 'number') { x1 = Math.min(x1, seg.x2); x2 = Math.max(x2, seg.x2); y1 = Math.min(y1, seg.y2); y2 = Math.max(y2, seg.y2); }
+                    if (typeof seg.x3 === 'number') { x1 = Math.min(x1, seg.x3); x2 = Math.max(x2, seg.x3); y1 = Math.min(y1, seg.y3); y2 = Math.max(y2, seg.y3); }
                 });
+                
+                // Fallbacks if no valid segments
+                if (x1 === 99999) x1 = 0;
+                if (y1 === 99999) y1 = 0;
+                if (x2 === -99999) x2 = 100;
+                if (y2 === -99999) y2 = 100;
                 
                 let merged = false;
                 for (let b of boxes) {
@@ -329,36 +340,51 @@ Return ONLY valid JSON:
 
             boxes.forEach((box) => {
                 const fontPath = new opentype.Path();
-                const boxHeight = box.y2 - box.y1 || 100;
+                const actualBoxHeight = box.y2 > box.y1 ? box.y2 - box.y1 : 100;
+                const boxHeight = actualBoxHeight || 100;
                 const scale = 700 / boxHeight; // Fit to 700 units
-                const boldnessOffset = aiMods.weight > 400 ? (aiMods.weight - 400) / 20 : 0;
+                
+                const weightNum = Number(aiMods.weight) || 400;
+                const scaleXNum = Number(aiMods.scaleX) || 1;
+                const scaleYNum = Number(aiMods.scaleY) || 1;
+                const slantNum = Number(aiMods.slant) || 0;
+                
+                const boldnessOffset = weightNum > 400 ? (weightNum - 400) / 20 : 0;
                 
                 box.paths.forEach((p: any) => {
+                    let firstSeg = true;
                     p.segments.forEach((seg: any) => {
                         const applyMods = (x: number, y: number) => {
-                            let nx = (x - box.x1) * scale * aiMods.scaleX;
-                            let ny = ((box.y2 - y) + 100) * scale * aiMods.scaleY; 
-                            if (aiMods.slant) nx += Math.tan(aiMods.slant * Math.PI / 180) * ny;
+                            let nx = (x - box.x1) * scale * scaleXNum;
+                            let ny = ((box.y2 - y) + 100) * scale * scaleYNum; 
+                            if (slantNum) nx += Math.tan(slantNum * Math.PI / 180) * ny;
                             nx += boldnessOffset; // naive bolding
-                            return [nx, ny];
+                            
+                            // Prevent NaN and ensure integers for TTF format
+                            if (isNaN(nx) || !isFinite(nx)) nx = 0;
+                            if (isNaN(ny) || !isFinite(ny)) ny = 0;
+                            
+                            return [Math.round(nx), Math.round(ny)];
                         };
 
-                        if (seg.type === 'L') {
+                        if (seg.type === 'L' && typeof seg.x1 === 'number') {
                             const [x1, y1] = applyMods(seg.x1, seg.y1);
                             const [x2, y2] = applyMods(seg.x2, seg.y2);
-                            if (fontPath.commands.length === 0) fontPath.moveTo(x1, y1);
+                            if (firstSeg) { fontPath.moveTo(x1, y1); firstSeg = false; }
                             fontPath.lineTo(x2, y2);
-                        } else if (seg.type === 'Q') {
+                        } else if (seg.type === 'Q' && typeof seg.x1 === 'number') {
                             const [x1, y1] = applyMods(seg.x1, seg.y1);
                             const [x2, y2] = applyMods(seg.x2, seg.y2);
                             const [x3, y3] = applyMods(seg.x3, seg.y3);
-                            if (fontPath.commands.length === 0) fontPath.moveTo(x1, y1);
+                            if (firstSeg) { fontPath.moveTo(x1, y1); firstSeg = false; }
                             fontPath.quadraticCurveTo(x2, y2, x3, y3);
                         }
                     });
                 });
 
-                const advanceW = (box.x2 - box.x1) * scale * aiMods.scaleX + 50 + boldnessOffset;
+                const boxWidth = box.x2 > box.x1 ? box.x2 - box.x1 : 100;
+                let advanceW = Math.round(boxWidth * scale * scaleXNum + 50 + boldnessOffset);
+                if (isNaN(advanceW) || advanceW <= 0) advanceW = 500;
                 const char = charsToMap[charIndex] || 'A';
                 
                 if (boxes.length === 1) {
@@ -406,9 +432,13 @@ Return ONLY valid JSON:
             setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
             
             // Inject to Document for preview
-            const fontFace = new FontFace(fontName, `url(${fontLocalUrl})`);
-            await fontFace.load();
-            document.fonts.add(fontFace);
+            try {
+                const fontFace = new FontFace(fontName, `url(${fontLocalUrl})`);
+                await fontFace.load();
+                document.fonts.add(fontFace);
+            } catch (fontErr) {
+                console.warn('Failed to load font face for preview, but proceeding...', fontErr);
+            }
 
             setPreviewRenderKey(Date.now());
             setUnifiedStep('preview');
