@@ -274,9 +274,13 @@ Return ONLY valid JSON:
             
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-            // Trace image
+            // Trace image with high precision
             const tracedata = (ImageTracer as any).imagedataToTracedata(imgData, {
-                ltres: 0.1, qtres: 1, pathomit: 8, colorsampling: 0, numberofcolors: 2
+                ltres: 0.05, 
+                qtres: 0.5, 
+                pathomit: 1, // Keep small details like dots on 'i'
+                colorsampling: 0, 
+                numberofcolors: 2
             });
 
             // Find ink layer (darkest)
@@ -306,9 +310,11 @@ Return ONLY valid JSON:
                 if (y2 === -99999) y2 = 100;
                 
                 let merged = false;
+                // Merging with tolerance for disconnected parts (e.g., dots on i, j)
+                const mergeTolerance = 12; // pixels
                 for (let b of boxes) {
-                    const overlapX = x1 <= b.x2 && x2 >= b.x1;
-                    const overlapY = y1 <= b.y2 && y2 >= b.y1;
+                    const overlapX = (x1 - mergeTolerance) <= b.x2 && (x2 + mergeTolerance) >= b.x1;
+                    const overlapY = (y1 - mergeTolerance) <= b.y2 && (y2 + mergeTolerance) >= b.y1;
                     if (overlapX && overlapY) {
                         b.x1 = Math.min(b.x1, x1); b.y1 = Math.min(b.y1, y1);
                         b.x2 = Math.max(b.x2, x2); b.y2 = Math.max(b.y2, y2);
@@ -354,31 +360,40 @@ Return ONLY valid JSON:
                 box.paths.forEach((p: any) => {
                     let firstSeg = true;
                     p.segments.forEach((seg: any) => {
-                        const applyMods = (x: number, y: number) => {
+                        const applyMods = (x: number, y: number, xOffset: number = 0) => {
                             let nx = (x - box.x1) * scale * scaleXNum;
                             let ny = ((box.y2 - y) + 100) * scale * scaleYNum; 
-                            if (slantNum) nx += Math.tan(slantNum * Math.PI / 180) * ny;
-                            nx += boldnessOffset; // naive bolding
+                            // Stronger slant
+                            if (slantNum) nx += Math.tan(slantNum * 1.5 * Math.PI / 180) * ny;
+                            nx += boldnessOffset + xOffset;
                             
-                            // Prevent NaN and ensure integers for TTF format
                             if (isNaN(nx) || !isFinite(nx)) nx = 0;
                             if (isNaN(ny) || !isFinite(ny)) ny = 0;
-                            
                             return [Math.round(nx), Math.round(ny)];
                         };
 
-                        if (seg.type === 'L' && typeof seg.x1 === 'number') {
-                            const [x1, y1] = applyMods(seg.x1, seg.y1);
-                            const [x2, y2] = applyMods(seg.x2, seg.y2);
-                            if (firstSeg) { fontPath.moveTo(x1, y1); firstSeg = false; }
-                            fontPath.lineTo(x2, y2);
-                        } else if (seg.type === 'Q' && typeof seg.x1 === 'number') {
-                            const [x1, y1] = applyMods(seg.x1, seg.y1);
-                            const [x2, y2] = applyMods(seg.x2, seg.y2);
-                            const [x3, y3] = applyMods(seg.x3, seg.y3);
-                            if (firstSeg) { fontPath.moveTo(x1, y1); firstSeg = false; }
-                            fontPath.quadraticCurveTo(x2, y2, x3, y3);
+                        const drawSeg = (s: any, off: number = 0) => {
+                            if (s.type === 'L' && typeof s.x1 === 'number') {
+                                const [x1, y1] = applyMods(s.x1, s.y1, off);
+                                const [x2, y2] = applyMods(s.x2, s.y2, off);
+                                if (firstSeg && off === 0) fontPath.moveTo(x1, y1);
+                                else fontPath.lineTo(x2, y2);
+                            } else if (s.type === 'Q' && typeof s.x1 === 'number') {
+                                const [x1, y1] = applyMods(s.x1, s.y1, off);
+                                const [x2, y2] = applyMods(s.x2, s.y2, off);
+                                const [x3, y3] = applyMods(s.x3, s.y3, off);
+                                if (firstSeg && off === 0) fontPath.moveTo(x1, y1);
+                                else fontPath.quadraticCurveTo(x2, y2, x3, y3);
+                            }
+                        };
+
+                        drawSeg(seg, 0);
+                        // If bold requested, draw again with offset to simulate thickness
+                        if (weightNum > 500) {
+                            drawSeg(seg, 1.5);
+                            if (weightNum > 700) drawSeg(seg, 3);
                         }
+                        firstSeg = false;
                     });
                 });
 
