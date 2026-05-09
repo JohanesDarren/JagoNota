@@ -20,6 +20,10 @@ export interface TextElement extends BaseElement {
   textAlign: 'left' | 'center' | 'right';
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline' | 'line-through' | 'underline line-through';
+  lineSpacing?: number;
+  letterSpacing?: number;
+  roughness?: number;
 }
 
 export interface ImageElement extends BaseElement {
@@ -65,6 +69,9 @@ export type CanvasElement = TextElement | ImageElement | ShapeElement | TableEle
 
 export interface DocumentTemplate {
   id: string;
+  db_id?: string;
+  user_id?: string | null;
+  is_default?: boolean;
   name: string;
   type: 'nota' | 'kwitansi' | 'blank';
   width: number;
@@ -83,12 +90,30 @@ export interface DocumentProject {
   projectElements: CanvasElement[];
 }
 
+export interface CustomFont {
+  id: string;
+  user_id: string;
+  name: string;
+  font_url: string;
+  line_spacing: number;
+  letter_spacing: number;
+  created_at: string;
+  cssText?: string;
+  fontFamilyName?: string;
+}
+
 export interface FontOption {
+  id?: string;
   label: string;
   value: string;
   isCustom?: boolean;
   cssText?: string;
   fontFamilyName?: string;
+  font_url?: string;
+  lineSpacing?: number;
+  letterSpacing?: number;
+  user_id?: string;
+  created_at?: string;
 }
 
 export const INITIAL_FONTS: FontOption[] = [

@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { DocumentProject, CanvasElement, TextElement, SignatureElement } from '../types';
 import ElementNode from './ElementNode';
 import { Download, Type, PenTool } from 'lucide-react';
+import { supabase } from '../utils';
 
 interface Props {
   project: DocumentProject;
@@ -11,6 +12,34 @@ interface Props {
 
 export default function ProjectEditor({ project, onUpdateProject, onBack }: Props) {
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const handleSaveProject = async () => {
+      try {
+          setSaving(true);
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+              alert('Anda harus login terlebih dahulu!');
+              return;
+          }
+
+          const { error } = await supabase.from('projects').insert([
+              {
+                  title: project.name.trim(),
+                  content: project,
+                  template_id: project.document.id,
+                  user_id: user.id
+              }
+          ]);
+
+          if (error) throw error;
+          alert('Project berhasil disimpan!');
+      } catch (err: any) {
+          alert('Gagal menyimpan project: ' + err.message);
+      } finally {
+          setSaving(false);
+      }
+  };
 
   const selectedElement = project.projectElements.find(e => e.id === selectedElementId) || null;
 
@@ -39,7 +68,12 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
           fontFamily: 'font-sans',
           fontSize: 16,
           color: '#000000',
-          textAlign: 'left'
+          textAlign: 'left',
+          fontWeight: 'normal',
+          fontStyle: 'normal',
+          textDecoration: 'none',
+          opacity: 1,
+          roughness: 0
       };
       handleUpdateElements([...project.projectElements, newText]);
       setSelectedElementId(newText.id);
@@ -207,6 +241,56 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                                             />
                                         </div>
                                     </div>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => onUpdateElement(txt.id, { fontWeight: txt.fontWeight === 'bold' ? 'normal' : 'bold' })}
+                                            className={`w-full py-2 rounded-lg border text-xs font-bold transition ${txt.fontWeight === 'bold' ? 'bg-[#1800ad] text-white border-[#1800ad]' : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-[#1800ad] dark:hover:border-blue-500'}`}
+                                        >
+                                            Bold
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => onUpdateElement(txt.id, { fontStyle: txt.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                                            className={`w-full py-2 rounded-lg border text-xs font-bold transition ${txt.fontStyle === 'italic' ? 'bg-[#1800ad] text-white border-[#1800ad]' : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-[#1800ad] dark:hover:border-blue-500'}`}
+                                        >
+                                            Italic
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => onUpdateElement(txt.id, { textDecoration: txt.textDecoration === 'underline' ? 'none' : 'underline' })}
+                                            className={`w-full py-2 rounded-lg border text-xs font-bold transition ${txt.textDecoration === 'underline' ? 'bg-[#1800ad] text-white border-[#1800ad]' : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-[#1800ad] dark:hover:border-blue-500'}`}
+                                        >
+                                            Underline
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Opacity ({Math.round((txt.opacity ?? 1) * 100)}%)</label>
+                                            <input
+                                                type="range"
+                                                min="0.1"
+                                                max="1"
+                                                step="0.05"
+                                                value={txt.opacity ?? 1}
+                                                onChange={e => onUpdateElement(txt.id, { opacity: parseFloat(e.target.value) })}
+                                                className="w-full"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Roughness ({txt.roughness ?? 0})</label>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="10"
+                                                step="0.5"
+                                                value={txt.roughness ?? 0}
+                                                onChange={e => onUpdateElement(txt.id, { roughness: parseFloat(e.target.value) })}
+                                                className="w-full"
+                                            />
+                                            <p className="text-[10px] text-gray-400 mt-1">Buat teks tampak lebih natural seperti tinta pulpen.</p>
+                                        </div>
+                                    </div>
                                 </div>
                             );
                         })()}
@@ -245,9 +329,16 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                 )}
             </div>
             
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                <button className="w-full bg-[#1800ad] dark:bg-blue-600 hover:bg-[#120085] dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 flex justify-center items-center gap-2">
-                    <Download size={18} /> Ekspor Project
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 space-y-3">
+                <button 
+                    onClick={handleSaveProject}
+                    disabled={saving}
+                    className="w-full bg-[#1800ad] dark:bg-blue-600 hover:bg-[#120085] dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <span className="text-lg">💾</span> {saving ? 'Menyimpan...' : 'Simpan Project'}
+                </button>
+                <button className="w-full bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 font-bold py-3.5 rounded-xl transition-all shadow-sm flex justify-center items-center gap-2">
+                    <Download size={18} /> Ekspor PDF
                 </button>
             </div>
         </div>

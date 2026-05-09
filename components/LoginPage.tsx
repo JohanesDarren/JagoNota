@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, ArrowRight, Github } from 'lucide-react';
 import { useTheme } from '../useTheme';
+import { supabase } from '../utils';
 
 interface LoginPageProps {
     onLogin: () => void;
@@ -12,12 +13,48 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [fullName, setFullName] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Mock authentication
-        if (email && password) {
-            onLogin();
+        setError(null);
+        setLoading(true);
+
+        try {
+            if (isRegister) {
+                const { data, error: signUpError } = await supabase.auth.signUp({
+                    email: email.trim(),
+                    password,
+                    options: {
+                        data: {
+                            full_name: fullName,
+                        }
+                    }
+                });
+
+                if (signUpError) throw signUpError;
+                
+                if (data.user) {
+                    onLogin();
+                }
+            } else {
+                const { data, error: signInError } = await supabase.auth.signInWithPassword({
+                    email: email.trim(),
+                    password,
+                });
+
+                if (signInError) throw signInError;
+
+                if (data.user) {
+                    onLogin();
+                }
+            }
+        } catch (err: any) {
+            setError(err.message || 'Terjadi kesalahan saat autentikasi');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -62,6 +99,12 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                 <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
                     <div className="bg-white/60 dark:bg-gray-800/80 backdrop-blur-sm py-8 px-4 shadow-xl border border-white/60 dark:border-gray-700 sm:rounded-[2rem] sm:px-10 transition-colors duration-300">
                         <form className="space-y-6" onSubmit={handleSubmit}>
+                            {error && (
+                                <div className="p-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl text-sm font-medium text-center">
+                                    {error}
+                                </div>
+                            )}
+
                             {isRegister && (
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Nama Lengkap</label>
@@ -69,6 +112,8 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                                         <input 
                                             type="text" 
                                             required 
+                                            value={fullName}
+                                            onChange={(e) => setFullName(e.target.value)}
                                             className="appearance-none block w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1800ad] dark:focus:ring-blue-500 focus:border-transparent transition-all"
                                             placeholder="John Doe"
                                         />
@@ -135,9 +180,10 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                             <div>
                                 <button 
                                     type="submit" 
-                                    className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 text-sm font-bold text-white bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1800ad] dark:focus:ring-offset-gray-900 dark:focus:ring-blue-500 transition-colors"
+                                    disabled={loading}
+                                    className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 text-sm font-bold text-white bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1800ad] dark:focus:ring-offset-gray-900 dark:focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {isRegister ? 'Daftar' : 'Masuk'} <ArrowRight size={16} />
+                                    {loading ? 'Memproses...' : (isRegister ? 'Daftar' : 'Masuk')} <ArrowRight size={16} />
                                 </button>
                             </div>
                         </form>

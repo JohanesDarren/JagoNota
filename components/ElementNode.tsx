@@ -5,12 +5,13 @@ import { Move, Maximize2, Trash2 } from 'lucide-react';
 interface Props {
   element: CanvasElement;
   isSelected?: boolean;
+  isLocked?: boolean;
   onSelect?: (id: string) => void;
   onUpdate: (id: string, updates: Partial<CanvasElement>) => void;
   onRemove: (id: string) => void;
 }
 
-export default function ElementNode({ element, isSelected, onSelect, onUpdate, onRemove }: Props) {
+export default function ElementNode({ element, isSelected, isLocked, onSelect, onUpdate, onRemove }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [tableResizeType, setTableResizeType] = useState<'col' | 'row' | null>(null);
@@ -24,6 +25,7 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
   const tableResizeDragStart = useRef({ x: 0, y: 0 });
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (isLocked) return;
     e.preventDefault();
     e.stopPropagation();
     if (onSelect) onSelect(element.id);
@@ -33,6 +35,7 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent) => {
+    if (isLocked) return;
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
@@ -147,6 +150,9 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
           case 'text':
               const t = element as TextElement;
               const isCustomFont = t.fontFamily.startsWith('custom-font-');
+              const roughness = t.roughness ?? 0;
+              const textShadow = roughness > 0 ? `0 ${Math.min(roughness * 0.2, 1.2)}px ${Math.min(roughness * 0.8, 2.4)}px rgba(0,0,0,0.15)` : undefined;
+              const filter = roughness > 0 ? `blur(${Math.min(roughness * 0.08, 1.2)}px)` : undefined;
               return (
                   <div className={isCustomFont ? t.fontFamily : ''} style={{
                       width: '100%', height: '100%',
@@ -156,6 +162,11 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
                       textAlign: t.textAlign,
                       fontWeight: t.fontWeight,
                       fontStyle: t.fontStyle,
+                      textDecoration: t.textDecoration,
+                      lineHeight: t.lineSpacing !== undefined ? t.lineSpacing : undefined,
+                      letterSpacing: t.letterSpacing !== undefined ? `${t.letterSpacing}px` : undefined,
+                      filter,
+                      textShadow,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: t.textAlign === 'center' ? 'center' : t.textAlign === 'right' ? 'flex-end' : 'flex-start'
@@ -213,7 +224,7 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
                           {tb.columns.map((c, i) => (
                               <div key={c.id} style={{ position: 'relative', flex: c.width, padding: '4px 8px', borderRight: i < tb.columns.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none', color: tb.textColor || '#000', fontSize: tb.fontSize || 12, fontFamily: tb.fontFamily }}>
                                   {c.header}
-                                  {isSelected && i < tb.columns.length - 1 && (
+                                  {isSelected && !isLocked && i < tb.columns.length - 1 && (
                                       <div 
                                           className="absolute top-0 right-0 h-full w-2 -mr-1 cursor-col-resize z-20 hover:bg-[#1800ad]/30 touch-none pointer-events-auto"
                                           onMouseDown={(e) => handleColResizeStart(e, i)}
@@ -228,7 +239,7 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
                                   {r.map((cell, ci) => (
                                       <div key={ci} style={{ position: 'relative', flex: tb.columns[ci].width, padding: '4px 8px', borderRight: ci < tb.columns.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none', color: tb.textColor || '#000', fontSize: tb.fontSize || 12, fontFamily: tb.fontFamily }}>
                                           {cell}
-                                          {isSelected && ci < tb.columns.length - 1 && (
+                                          {isSelected && !isLocked && ci < tb.columns.length - 1 && (
                                               <div 
                                                   className="absolute top-0 right-0 h-full w-2 -mr-1 cursor-col-resize z-20 hover:bg-[#1800ad]/30 touch-none pointer-events-auto"
                                                   onMouseDown={(e) => handleColResizeStart(e, ci)}
@@ -236,7 +247,7 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
                                           )}
                                       </div>
                                   ))}
-                                  {isSelected && ri < tb.rows.length - 1 && (
+                                  {isSelected && !isLocked && ri < tb.rows.length - 1 && (
                                       <div 
                                           className="absolute bottom-0 left-0 w-full h-2 -mb-1 cursor-row-resize z-20 hover:bg-[#1800ad]/30 touch-none pointer-events-auto"
                                           onMouseDown={(e) => handleRowResizeStart(e, ri)}
@@ -287,7 +298,7 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
         height: element.height,
         opacity: element.opacity ?? 1,
         zIndex: element.zIndex ?? 1,
-        cursor: isDragging ? 'grabbing' : 'grab',
+        cursor: isLocked ? 'not-allowed' : isDragging ? 'grabbing' : 'grab',
         touchAction: 'none'
       }}
       onMouseDown={handleMouseDown}
@@ -302,19 +313,23 @@ export default function ElementNode({ element, isSelected, onSelect, onUpdate, o
 
       {isSelected && (
           <div className="absolute inset-0 pointer-events-none">
-              <div
-                className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border border-[#1800ad] cursor-se-resize rounded-full z-10 pointer-events-auto hover:scale-125 transition-transform"
-                onMouseDown={handleResizeMouseDown}
-              />
-              <div
-                  className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 cursor-pointer flex items-center justify-center rounded-full shadow-lg z-10 hover:bg-red-600 pointer-events-auto"
-                  onClick={(e) => {
-                      e.stopPropagation();
-                      onRemove(element.id);
-                  }}
-              >
-                  <Trash2 size={12} className="text-white" />
-              </div>
+              {!isLocked && (
+                <>
+                  <div
+                    className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border border-[#1800ad] cursor-se-resize rounded-full z-10 pointer-events-auto hover:scale-125 transition-transform"
+                    onMouseDown={handleResizeMouseDown}
+                  />
+                  <div
+                      className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 cursor-pointer flex items-center justify-center rounded-full shadow-lg z-10 hover:bg-red-600 pointer-events-auto"
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          onRemove(element.id);
+                      }}
+                  >
+                      <Trash2 size={12} className="text-white" />
+                  </div>
+                </>
+              )}
           </div>
       )}
     </div>

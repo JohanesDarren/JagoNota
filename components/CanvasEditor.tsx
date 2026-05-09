@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { DocumentTemplate, CanvasElement } from '../types';
 import SidebarPropertyPanel from './SidebarPropertyPanel';
 import ElementNode from './ElementNode';
+import { supabase } from '../utils';
 
 interface Props {
   template: DocumentTemplate;
@@ -12,8 +13,74 @@ interface Props {
 export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+
+  React.useEffect(() => {
+      const checkLockStatus = async () => {
+          const { data, error } = await supabase
+              .from('projects')
+              .select('id')
+              .eq('template_id', template.id)
+              .limit(1);
+          
+          if (!error && data && data.length > 0) {
+              setIsLocked(true);
+          }
+      };
+      if (template.db_id) {
+          checkLockStatus();
+      }
+  }, [template.id, template.db_id]);
+
+  const handleSaveTemplate = async () => {
+      try {
+          setSaving(true);
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+              alert('Anda harus login terlebih dahulu!');
+              return;
+          }
+
+          if (template.db_id && template.user_id === user.id) {
+              // Update existing (only if user owns the template)
+              const { error } = await supabase.from('templates').update({
+                  name: template.name.trim(),
+                  layout_data: template
+              }).eq('id', template.db_id);
+              
+              if (error) throw error;
+              alert('Template berhasil diperbarui!');
+          } else {
+              // Insert as new (for new templates or when editing app templates)
+              const newLayoutId = 'tmpl_' + Date.now();
+              const newTemplate = { ...template, id: newLayoutId, user_id: user.id };
+              delete newTemplate.db_id;
+              delete newTemplate.is_default;
+
+              const { data, error } = await supabase.from('templates').insert([
+                  {
+                      name: newTemplate.name.trim(),
+                      layout_data: newTemplate,
+                      user_id: user.id
+                  }
+              ]).select();
+
+              if (error) throw error;
+              if (data && data.length > 0) {
+                  onUpdateTemplate({ ...newTemplate, db_id: data[0].id });
+              }
+              alert(template.db_id ? 'Template aplikasi berhasil disimpan sebagai template baru!' : 'Template berhasil disimpan sebagai template baru!');
+          }
+      } catch (err: any) {
+          alert('Gagal menyimpan template: ' + err.message);
+      } finally {
+          setSaving(false);
+      }
+  };
 
   const updateElement = (id: string, updates: Partial<CanvasElement>) => {
+    if (isLocked) return;
     onUpdateTemplate({
       ...template,
       elements: template.elements.map(el => el.id === id ? { ...el, ...updates } as CanvasElement : el)
@@ -21,6 +88,7 @@ export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Pro
   };
 
   const removeElement = (id: string) => {
+    if (isLocked) return;
     onUpdateTemplate({
       ...template,
       elements: template.elements.filter(el => el.id !== id)
@@ -29,6 +97,7 @@ export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Pro
   };
 
   const addElement = (newEl: CanvasElement) => {
+      if (isLocked) return;
       onUpdateTemplate({
           ...template,
           elements: [...template.elements, newEl]
@@ -47,6 +116,9 @@ export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Pro
            onUpdateTemplate={onUpdateTemplate}
            onBack={onBack}
            onAddElement={addElement}
+           onSave={handleSaveTemplate}
+           isSaving={saving}
+           isLocked={isLocked}
        />
        
        <div 
@@ -62,12 +134,18 @@ export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Pro
                     backgroundColor: template.backgroundColor 
                 }}
             >
+                {isLocked && (
+                  <div className="absolute inset-x-0 top-0 z-20 px-6 py-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 border-b border-red-200 dark:border-red-700 text-sm font-semibold text-center">
+                    Template terkunci karena sudah digunakan dalam project.
+                  </div>
+                )}
                 {template.elements.map(el => (
                     <ElementNode 
                         key={el.id}
                         element={el}
                         isSelected={selectedId === el.id}
-                        onSelect={(id) => setSelectedId(id)}
+                        isLocked={isLocked}
+                        onSelect={(id) => !isLocked && setSelectedId(id)}
                         onUpdate={(id, updates) => updateElement(id, updates)}
                         onRemove={removeElement}
                     />

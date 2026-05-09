@@ -4,6 +4,7 @@ import { FileSignature, Palette, Plus, X, FileText, Receipt, Edit3, Trash2 } fro
 
 interface Props {
   templates: DocumentTemplate[];
+  currentUserId?: string | null;
   onStartEditor: (template: DocumentTemplate, isNew?: boolean) => void;
   onDeleteTemplate: (id: string) => void;
   onRenameTemplate: (id: string, newName: string) => void;
@@ -14,7 +15,7 @@ function createId() {
   return Math.random().toString(36).substr(2, 9);
 }
 
-function createStandardNota(name: string): DocumentTemplate {
+function createStandardNota(name: string, userId: string): DocumentTemplate {
   return {
     id: 'nota_' + Date.now(),
     name: name || 'Template Nota Standar',
@@ -22,6 +23,7 @@ function createStandardNota(name: string): DocumentTemplate {
     width: 600,
     height: 800,
     backgroundColor: '#ffffff',
+    user_id: userId,
     elements: [
       { id: createId(), type: 'text', content: 'NOTA PENJUALAN', x: 200, y: 30, width: 200, height: 30, fontFamily: 'font-sans', fontSize: 20, color: '#000000', textAlign: 'center', fontWeight: 'bold' },
       { id: createId(), type: 'text', content: 'NAMA TOKO', x: 20, y: 70, width: 200, height: 30, fontFamily: 'font-sans', fontSize: 18, color: '#000000', textAlign: 'left', fontWeight: 'bold' },
@@ -65,7 +67,7 @@ function createStandardNota(name: string): DocumentTemplate {
   };
 }
 
-function createStandardKwitansi(name: string): DocumentTemplate {
+function createStandardKwitansi(name: string, userId: string): DocumentTemplate {
   return {
     id: 'kwitansi_' + Date.now(),
     name: name || 'Template Kwitansi Standar',
@@ -73,6 +75,7 @@ function createStandardKwitansi(name: string): DocumentTemplate {
     width: 800,
     height: 350,
     backgroundColor: '#ffffff',
+    user_id: userId,
     elements: [
       { id: createId(), type: 'text', content: 'KWITANSI', x: 350, y: 20, width: 100, height: 30, fontFamily: 'font-serif', fontSize: 24, color: '#000000', textAlign: 'center', fontWeight: 'bold' },
       { id: createId(), type: 'shape', shapeType: 'line', x: 20, y: 60, width: 760, height: 2, strokeColor: '#000000', strokeWidth: 2 },
@@ -141,9 +144,10 @@ const StaticPreview = ({ template }: { template: DocumentTemplate }) => {
     );
 };
 
-export default function TemplateManager({ templates, onStartEditor, onDeleteTemplate, onRenameTemplate, onBack }: Props) {
+export default function TemplateManager({ templates, currentUserId, onStartEditor, onDeleteTemplate, onRenameTemplate, onBack }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
+  const [activeTab, setActiveTab] = useState<'my-templates' | 'app-templates'>('my-templates');
   
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
@@ -165,8 +169,8 @@ export default function TemplateManager({ templates, onStartEditor, onDeleteTemp
 
        <div className="max-w-6xl mx-auto relative z-10">
            <div className="flex justify-between items-center mb-12">
-               <button onClick={onBack} className="text-sm font-bold text-gray-400 hover:text-[#1800ad] dark:hover:text-blue-400 flex items-center gap-2 uppercase tracking-widest transition-colors">← Kembali</button>
-               <button onClick={() => setShowModal(true)} className="bg-gray-900 dark:bg-blue-600 hover:bg-black dark:hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-2 transition-colors">
+               <button type="button" onClick={onBack} className="text-sm font-bold text-gray-400 hover:text-[#1800ad] dark:hover:text-blue-400 flex items-center gap-2 uppercase tracking-widest transition-colors">← Kembali</button>
+               <button type="button" onClick={() => setShowModal(true)} className="bg-gray-900 dark:bg-blue-600 hover:bg-black dark:hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-2 transition-colors">
                    <Plus size={18} /> Buat Template Baru
                </button>
            </div>
@@ -180,9 +184,24 @@ export default function TemplateManager({ templates, onStartEditor, onDeleteTemp
                </h1>
                <p className="text-gray-500 dark:text-gray-400 font-medium max-w-lg mt-4">Buat template nota dan kwitansi Anda sendiri dengan kanvas dinamis yang fleksibel dan mudah digunakan.</p>
            </div>
+           
+           <div className="flex items-center gap-4 mb-8 border-b border-gray-200 dark:border-gray-700 pb-px">
+               <button 
+                   onClick={() => setActiveTab('my-templates')}
+                   className={`pb-4 text-sm font-bold tracking-wide transition-colors border-b-2 ${activeTab === 'my-templates' ? 'border-[#1800ad] dark:border-blue-400 text-[#1800ad] dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+               >
+                   Template Saya
+               </button>
+               <button 
+                   onClick={() => setActiveTab('app-templates')}
+                   className={`pb-4 text-sm font-bold tracking-wide transition-colors border-b-2 ${activeTab === 'app-templates' ? 'border-[#1800ad] dark:border-blue-400 text-[#1800ad] dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+               >
+                   Template Aplikasi
+               </button>
+           </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {templates.map(tmpl => (
+                {templates.filter(t => activeTab === 'my-templates' ? t.user_id === currentUserId : t.user_id == null || t.is_default).map(tmpl => (
                     <div key={tmpl.id} className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md rounded-[2rem] shadow-lg shadow-blue-900/5 border border-white dark:border-gray-700 overflow-hidden hover:bg-white dark:hover:bg-gray-800 hover:shadow-xl hover:-translate-y-1 transition-all group flex flex-col h-full">
                         <div className="h-48 bg-gray-50 dark:bg-gray-700 flex items-center justify-center relative p-4 relative overflow-hidden border-b border-gray-100 dark:border-gray-700">
                             <StaticPreview template={tmpl} />
@@ -191,13 +210,15 @@ export default function TemplateManager({ templates, onStartEditor, onDeleteTemp
                                 {tmpl.type}
                             </div>
                             
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onDeleteTemplate(tmpl.id); }}
-                                className="absolute top-4 left-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-lg border border-gray-100 dark:border-gray-600 z-10 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
-                                title="Hapus Template"
-                            >
-                                <Trash2 size={16} />
-                            </button>
+                            {tmpl.user_id === currentUserId && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onDeleteTemplate(tmpl.id); }}
+                                    className="absolute top-4 left-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-lg border border-gray-100 dark:border-gray-600 z-10 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
+                                    title="Hapus Template"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            )}
                         </div>
                         <div className="p-6 flex-1 flex flex-col justify-between">
                             <div className="mb-6">
@@ -214,15 +235,16 @@ export default function TemplateManager({ templates, onStartEditor, onDeleteTemp
                                         />
                                     </div>
                                 ) : (
-                                    <div className="group/title flex items-start justify-between cursor-pointer mb-2" onClick={() => { setEditingNameId(tmpl.id); setEditingNameValue(tmpl.name); }}>
+                                    <div className={`group/title flex items-start justify-between ${tmpl.user_id === currentUserId ? 'cursor-pointer' : ''} mb-2`} onClick={() => { if (tmpl.user_id === currentUserId) { setEditingNameId(tmpl.id); setEditingNameValue(tmpl.name); } }}>
                                         <h3 className="font-bold text-gray-900 dark:text-white text-lg decoration-gray-300 dark:decoration-gray-600 group-hover/title:underline underline-offset-4">{tmpl.name}</h3>
-                                        <Edit3 size={14} className="text-gray-300 dark:text-gray-500 opacity-0 group-hover/title:opacity-100 transition-opacity mt-1.5 flex-shrink-0 ml-2" />
+                                        {tmpl.user_id === currentUserId && <Edit3 size={14} className="text-gray-300 dark:text-gray-500 opacity-0 group-hover/title:opacity-100 transition-opacity mt-1.5 flex-shrink-0 ml-2" />}
                                     </div>
                                 )}
                                 <p className="text-sm font-medium text-gray-400 dark:text-gray-500">{tmpl.elements.length} Elemen Terdaftar</p>
                             </div>
                             <button 
-                               onClick={() => onStartEditor(tmpl, false)}
+                               type="button"
+                               onClick={(e) => { e.preventDefault(); onStartEditor(tmpl, false); }}
                                className="w-full bg-gray-50 dark:bg-gray-700 hover:bg-[#1800ad] dark:hover:bg-blue-600 text-gray-700 dark:text-gray-300 hover:text-white dark:hover:text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
                             >
                                 <FileSignature size={18} /> Buka Editor
@@ -257,7 +279,7 @@ export default function TemplateManager({ templates, onStartEditor, onDeleteTemp
                            <button 
                               onClick={() => {
                                   setShowModal(false);
-                                  onStartEditor(createStandardNota(newTemplateName), true);
+                                  onStartEditor(createStandardNota(newTemplateName, currentUserId || ''), true);
                                   setNewTemplateName('');
                               }}
                               className="flex flex-col items-start justify-center p-6 border-2 border-gray-100 dark:border-gray-700 hover:border-[#1800ad] dark:hover:border-blue-500 hover:bg-[#1800ad]/5 dark:hover:bg-blue-500/10 rounded-2xl transition-all group text-left"
@@ -271,7 +293,7 @@ export default function TemplateManager({ templates, onStartEditor, onDeleteTemp
                            <button 
                               onClick={() => {
                                   setShowModal(false);
-                                  onStartEditor(createStandardKwitansi(newTemplateName), true);
+                                  onStartEditor(createStandardKwitansi(newTemplateName, currentUserId || ''), true);
                                   setNewTemplateName('');
                               }}
                               className="flex flex-col items-start justify-center p-6 border-2 border-gray-100 dark:border-gray-700 hover:border-[#1800ad] dark:hover:border-blue-500 hover:bg-[#1800ad]/5 dark:hover:bg-blue-500/10 rounded-2xl transition-all group text-left"

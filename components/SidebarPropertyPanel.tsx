@@ -8,9 +8,12 @@ interface Props {
   onUpdateTemplate: (t: DocumentTemplate) => void;
   onBack: () => void;
   onAddElement?: (el: CanvasElement) => void;
+  onSave?: () => void;
+  isSaving?: boolean;
+  isLocked?: boolean;
 }
 
-export default function SidebarPropertyPanel({ selectedElement, onUpdateElement, template, onUpdateTemplate, onBack, onAddElement }: Props) {
+export default function SidebarPropertyPanel({ selectedElement, onUpdateElement, template, onUpdateTemplate, onBack, onAddElement, onSave, isSaving, isLocked }: Props) {
   
   const handleAddText = () => {
       if(!onAddElement) return;
@@ -104,7 +107,17 @@ export default function SidebarPropertyPanel({ selectedElement, onUpdateElement,
             <span className="font-bold text-gray-800 dark:text-gray-200 truncate px-2">{template.name}</span>
         </div>
         
-        <div className="flex-1 p-5 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 p-5 overflow-y-auto custom-scrollbar relative">
+            {isLocked && (
+                <div className="absolute inset-0 z-10 bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm flex flex-col items-start justify-start p-6 text-center pt-20">
+                    <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/30 text-red-500 dark:text-red-400 flex items-center justify-center mb-4 mx-auto border border-red-100 dark:border-red-800">
+                        <span className="text-xl">🔒</span>
+                    </div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2 mx-auto">Read-Only Mode</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Template ini sudah digunakan dalam Project dan tata letaknya telah dikunci untuk menjaga konsistensi dokumen.</p>
+                </div>
+            )}
+
             {!selectedElement ? (
                 <div className="space-y-6">
                     <div className="space-y-4">
@@ -220,6 +233,28 @@ export default function SidebarPropertyPanel({ selectedElement, onUpdateElement,
                                         return null;
                                     })()}
                                 </select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Letter Spacing</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={selectedElement.letterSpacing ?? 0}
+                                        onChange={e => onUpdateElement(selectedElement.id, { letterSpacing: parseFloat(e.target.value) })}
+                                        className="w-full border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Line Spacing</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={selectedElement.lineSpacing ?? 1}
+                                        onChange={e => onUpdateElement(selectedElement.id, { lineSpacing: parseFloat(e.target.value) })}
+                                        className="w-full border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 outline-none"
+                                    />
+                                </div>
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Alignment</label>
@@ -366,6 +401,18 @@ export default function SidebarPropertyPanel({ selectedElement, onUpdateElement,
                 </div>
             )}
         </div>
+        
+        {onSave && !isLocked && (
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <button 
+                    onClick={onSave}
+                    disabled={isSaving}
+                    className="w-full bg-[#1800ad] dark:bg-blue-600 hover:bg-[#120085] dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <span className="text-lg">💾</span> {isSaving ? 'Menyimpan...' : 'Simpan Template'}
+                </button>
+            </div>
+        )}
     </div>
   );
 }
