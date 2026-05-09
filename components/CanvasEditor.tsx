@@ -53,8 +53,8 @@ export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Pro
               alert('Template berhasil diperbarui!');
           } else {
               // Insert as new (for new templates or when editing app templates)
-              const newLayoutId = 'tmpl_' + Date.now();
-              const newTemplate = { ...template, id: newLayoutId, user_id: user.id };
+              // Keep the same template.id to avoid duplicate in App state
+              const newTemplate = { ...template, user_id: user.id };
               delete newTemplate.db_id;
               delete newTemplate.is_default;
 
@@ -68,9 +68,10 @@ export default function CanvasEditor({ template, onUpdateTemplate, onBack }: Pro
 
               if (error) throw error;
               if (data && data.length > 0) {
+                  // Only update db_id so App state finds the same template by its id
                   onUpdateTemplate({ ...newTemplate, db_id: data[0].id });
               }
-              alert(template.db_id ? 'Template aplikasi berhasil disimpan sebagai template baru!' : 'Template berhasil disimpan sebagai template baru!');
+              alert(template.db_id ? 'Template aplikasi berhasil disimpan sebagai template baru!' : 'Template berhasil disimpan!');
           }
       } catch (err: any) {
           alert('Gagal menyimpan template: ' + err.message);

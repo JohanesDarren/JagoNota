@@ -1,5 +1,5 @@
-import React from 'react';
-import { CanvasElement, DocumentTemplate, TextElement, ImageElement, ShapeElement, TableElement } from '../types';
+import React, { useState, useEffect } from 'react';
+import { CanvasElement, DocumentTemplate, TextElement, ImageElement, ShapeElement, TableElement, FontOption } from '../types';
 
 interface Props {
   selectedElement: CanvasElement | null;
@@ -14,6 +14,59 @@ interface Props {
 }
 
 export default function SidebarPropertyPanel({ selectedElement, onUpdateElement, template, onUpdateTemplate, onBack, onAddElement, onSave, isSaving, isLocked }: Props) {
+  const [customFonts, setCustomFonts] = useState<FontOption[]>(() => {
+    try {
+      const saved = localStorage.getItem('jagonota_custom_fonts');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // Reload custom fonts from localStorage and re-inject CSS whenever the panel is active
+  useEffect(() => {
+    const loadAndInjectFonts = () => {
+      try {
+        const saved = localStorage.getItem('jagonota_custom_fonts');
+        const fonts: FontOption[] = saved ? JSON.parse(saved) : [];
+        setCustomFonts(fonts);
+
+        // Re-inject @font-face CSS so custom fonts render on the canvas
+        const existing = document.getElementById('jagonota-custom-fonts-style');
+        if (existing) existing.remove();
+        const style = document.createElement('style');
+        style.id = 'jagonota-custom-fonts-style';
+        style.textContent = fonts.map((f: FontOption) => {
+          const spacing = `letter-spacing: ${f.letterSpacing ?? 0}px; line-height: ${f.lineSpacing ?? 1};`;
+          if (f.font_url) {
+            const format = f.font_url.endsWith('.woff2') ? 'woff2' : f.font_url.endsWith('.woff') ? 'woff' : f.font_url.endsWith('.ttf') ? 'truetype' : f.font_url.endsWith('.otf') ? 'opentype' : 'woff2';
+            return `@font-face { font-family: '${f.value}'; src: url('${f.font_url}') format('${format}'); font-weight: normal; font-style: normal; }\n.${f.value} { font-family: '${f.value}', sans-serif; ${spacing} display: inline-block; }`;
+          }
+          if (f.cssText) {
+            return `.${f.value} { ${f.cssText} ${spacing} display: inline-block; }`;
+          }
+          return `.${f.value} { ${spacing} display: inline-block; }`;
+        }).join('\n');
+        document.head.appendChild(style);
+
+        // Load Google Fonts for AI-generated CSS fonts
+        fonts.forEach((f: FontOption) => {
+          if (f.fontFamilyName && !f.font_url && !document.getElementById('gf-' + f.value)) {
+            const link = document.createElement('link');
+            link.id = 'gf-' + f.value;
+            link.rel = 'stylesheet';
+            link.href = `https://fonts.googleapis.com/css2?family=${f.fontFamilyName.replace(/\s+/g, '+')}&display=swap`;
+            document.head.appendChild(link);
+          }
+        });
+      } catch (e) {
+        console.error('Error loading custom fonts in sidebar:', e);
+      }
+    };
+
+    loadAndInjectFonts();
+    // Also listen for storage changes (when FontManager saves a new font)
+    window.addEventListener('storage', loadAndInjectFonts);
+    return () => window.removeEventListener('storage', loadAndInjectFonts);
+  }, []);
   
   const handleAddText = () => {
       if(!onAddElement) return;
@@ -222,16 +275,9 @@ export default function SidebarPropertyPanel({ selectedElement, onUpdateElement,
                                     <option value="font-hand-messy">Rock Salt (Berantakan)</option>
                                     <option value="font-hand-messy-2">Homemade Apple</option>
                                     
-                                    {(() => {
-                                        const saved = localStorage.getItem('jagonota_custom_fonts');
-                                        if (saved) {
-                                            const customFonts = JSON.parse(saved);
-                                            return customFonts.map((f: any) => (
-                                                <option key={f.value} value={f.value}>{f.label} (Custom)</option>
-                                            ));
-                                        }
-                                        return null;
-                                    })()}
+                                    {customFonts.map((f: FontOption) => (
+                                        <option key={f.value} value={f.value}>{f.label} (Custom)</option>
+                                    ))}
                                 </select>
                             </div>
                             <div className="grid grid-cols-2 gap-3">

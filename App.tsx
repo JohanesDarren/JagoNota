@@ -242,18 +242,20 @@ export default function App() {
 
     const templateCopy = JSON.parse(JSON.stringify(template)) as DocumentTemplate;
     if (isAppTemplate) {
+      // Give a unique draft id so it doesn't conflict with the original preset
       templateCopy.id = `${template.id}_draft_${Date.now()}`;
       delete templateCopy.db_id;
-      templateCopy.user_id = currentUserId || templateCopy.user_id || null;
+      templateCopy.user_id = currentUserId || null;
       delete templateCopy.is_default;
     }
 
-    if (isNew) {
-      setActiveItem({ type: 'template', doc: templateCopy });
-      setTemplates(prev => [templateCopy, ...prev]);
-    } else {
-      setActiveItem({ type: 'template', doc: templateCopy });
-    }
+    // Pre-add to state so editor has it; handleUpdateActive will update it in-place on save
+    setActiveItem({ type: 'template', doc: templateCopy });
+    setTemplates(prev => {
+      // Avoid true duplicates (same id already in list)
+      if (prev.find(t => t.id === templateCopy.id)) return prev;
+      return [templateCopy, ...prev];
+    });
     setView('editor');
   };
   const startProjectEditor = (project: DocumentProject, isNew: boolean = false) => {
@@ -272,8 +274,20 @@ export default function App() {
       if (activeItem.type === 'template') {
           setActiveItem({ type: 'template', doc: updatedDoc });
           setTemplates(prev => {
-              const exists = prev.find(t => t.id === updatedDoc.id);
-              if (exists) return prev.map(t => t.id === updatedDoc.id ? updatedDoc : t);
+              // Match by id first, then by db_id as fallback (in case the id changed after save)
+              const existsById = prev.find(t => t.id === updatedDoc.id);
+              const existsByDbId = updatedDoc.db_id ? prev.find(t => t.db_id === updatedDoc.db_id) : null;
+              const activeDoc = activeItem.doc as DocumentTemplate;
+              const existsByActiveId = prev.find(t => t.id === activeDoc.id);
+              
+              if (existsById) {
+                return prev.map(t => t.id === updatedDoc.id ? updatedDoc : t);
+              } else if (existsByDbId) {
+                return prev.map(t => t.db_id === updatedDoc.db_id ? updatedDoc : t);
+              } else if (existsByActiveId) {
+                // Active item id changed (app template draft), replace the draft
+                return prev.map(t => t.id === activeDoc.id ? updatedDoc : t);
+              }
               return [updatedDoc, ...prev];
           });
       } else {
@@ -351,7 +365,14 @@ export default function App() {
               <CanvasEditor 
                   template={activeItem.doc as DocumentTemplate} 
                   onUpdateTemplate={(doc) => handleUpdateActive(doc)}
-                  onBack={() => setView('template-manager')}
+                  onBack={() => {
+                    // Clean up unsaved drafts (no db_id) when going back
+                    const activeDoc = activeItem.doc as DocumentTemplate;
+                    if (!activeDoc.db_id) {
+                      setTemplates(prev => prev.filter(t => t.id !== activeDoc.id));
+                    }
+                    setView('template-manager');
+                  }}
               />
           );
       } else {

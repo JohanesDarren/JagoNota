@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FontOption, INITIAL_FONTS } from '../types';
-import { Type, Plus, Upload, Loader2, FileImage, CheckCircle, Info, ChevronRight, X } from 'lucide-react';
-import { GoogleGenAI, Type as GenAIType } from '@google/genai';
+import { Type, Plus, Upload, Loader2, FileImage, CheckCircle, Info, X } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 import { supabase } from '../utils';
-import * as opentype from 'opentype.js';
-import ImageTracer from 'imagetracerjs';
 
 const inferFontFormat = (url: string) => {
     if (url.endsWith('.woff2')) return 'woff2';
@@ -198,7 +196,7 @@ export default function FontManager({ onBack }: Props) {
         reader.readAsDataURL(file);
     };
 
-    // ── UNIFIED: Main process function — True TTF Generator ──
+    // ── UNIFIED: Main process function — AI Google Font Matching ──
     const handleProcessFont = async () => {
         if (!uploadedImage) return;
 
@@ -206,266 +204,103 @@ export default function FontManager({ onBack }: Props) {
         setUnifiedStep('processing');
 
         const geminiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-        const hasPrompt = aiPrompt.trim().length > 0;
 
         try {
-            // 1. AI Parameter Extraction
-            let aiMods = { scaleX: 1, scaleY: 1, slant: 0, weight: 400 };
             const base64String = uploadedImage.split(',')[1];
             const mimeType = uploadedImage.split(',')[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
 
+            const adjustmentNote = aiPrompt.trim()
+                ? `Pengguna juga ingin penyesuaian ini: "${aiPrompt.trim()}". Terapkan sesuai (tebal/bold → font-weight:700; miring/italic → font-style:italic; elegan → pilih Dancing Script atau Satisfy; berantakan/kasar → Rock Salt).`
+                : 'Replikasi gaya tulisan tangan seakurat mungkin tanpa modifikasi tambahan.';
+
+            const promptText = `Kamu adalah pakar tipografi digital. Analisis gambar tulisan tangan ini secara mendalam.
+${adjustmentNote}
+
+Tugas kamu:
+1. Identifikasi gaya tulisan (rapi/berantakan, tegak/miring, tebal/tipis, kasual/formal)
+2. Pilih SATU Google Font terbaik dari daftar: Indie Flower, Caveat, Kalam, Pacifico, Dancing Script, Shadows Into Light, Permanent Marker, Amatic SC, Satisfy, Handlee, Rock Salt, Patrick Hand SC, Delius, Homemade Apple, Caveat Brush, Gloria Hallelujah
+3. Buat CSS lengkap untuk mencocokkan gaya tulisan tangan
+
+BALAS HANYA JSON valid, tanpa markdown:
+{"fontFamilyName":"<nama font>","cssText":"<CSS properties string>","reason":"<alasan singkat pilihan font>"}`;
+
+            let fontFamily = 'Caveat';
+            let css = `font-family: 'Caveat', cursive; letter-spacing: 1px; line-height: 1.5;`;
+
             if (geminiKey) {
-                const promptText = `ANALYZE THE HANDWRITING DEEPLY. The user wants to convert this into a working font.
-User Instruction: "${aiPrompt.trim()}"
-
-Extract geometric modifiers to apply to the SVG paths:
-- scaleX: Number around 1.0. Increase if user wants wider text.
-- scaleY: Number around 1.0. Increase if user wants taller text.
-- slant: Angle in degrees (-20 to 20). Positive for right-leaning/italic.
-- weight: 100 to 900. 400 is normal. If user wants bold, use 700.
-
-Return ONLY valid JSON:
-{"scaleX": <number>, "scaleY": <number>, "slant": <number>, "weight": <number>}`;
-
                 try {
-                    const genAI = new GoogleGenAI(geminiKey);
-                    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-                    
-                    const result = await model.generateContent([
-                        { text: promptText },
-                        { inlineData: { mimeType, data: base64String } }
-                    ]);
-                    
-                    const response = await result.response;
-                    const rawText = response.text();
-                    
-                    const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
-                    const jsonStr = jsonMatch ? jsonMatch[0] : rawText.trim();
-                    const json = JSON.parse(jsonStr);
-                    aiMods = {
-                        scaleX: Number(json.scaleX) || 1,
-                        scaleY: Number(json.scaleY) || 1,
-                        slant: Number(json.slant) || 0,
-                        weight: Number(json.weight) || 400
-                    };
-                } catch (err) {
-                    console.warn('Gemini API failed, using defaults', err);
-                }
-            }
-
-            // 2. Client-side Vectorization
-            const img = new Image();
-            img.src = uploadedImage;
-            await new Promise((resolve, reject) => { 
-                img.onload = resolve; 
-                img.onerror = reject; 
-            });
-
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) throw new Error("Could not get canvas context");
-            
-            // Clean up image (increase contrast)
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-            // Trace image with high precision
-            const tracedata = (ImageTracer as any).imagedataToTracedata(imgData, {
-                ltres: 0.05, 
-                qtres: 0.5, 
-                pathomit: 1, // Keep small details like dots on 'i'
-                colorsampling: 0, 
-                numberofcolors: 2
-            });
-
-            // Find ink layer (darkest)
-            let darkLayerIdx = 0;
-            let minLightness = 255 * 3;
-            tracedata.palette.forEach((color: any, idx: number) => {
-                const l = color.r + color.g + color.b;
-                if (l < minLightness) { minLightness = l; darkLayerIdx = idx; }
-            });
-            const paths = tracedata.layers[darkLayerIdx] || [];
-
-            // Group paths by Bounding Box (simple letter segmentation)
-            interface BBox { x1: number, y1: number, x2: number, y2: number, paths: any[] }
-            let boxes: BBox[] = [];
-            paths.forEach((p: any) => {
-                let x1 = 99999, y1 = 99999, x2 = -99999, y2 = -99999;
-                p.segments.forEach((seg: any) => {
-                    if (typeof seg.x1 === 'number') { x1 = Math.min(x1, seg.x1); x2 = Math.max(x2, seg.x1); y1 = Math.min(y1, seg.y1); y2 = Math.max(y2, seg.y1); }
-                    if (typeof seg.x2 === 'number') { x1 = Math.min(x1, seg.x2); x2 = Math.max(x2, seg.x2); y1 = Math.min(y1, seg.y2); y2 = Math.max(y2, seg.y2); }
-                    if (typeof seg.x3 === 'number') { x1 = Math.min(x1, seg.x3); x2 = Math.max(x2, seg.x3); y1 = Math.min(y1, seg.y3); y2 = Math.max(y2, seg.y3); }
-                });
-                
-                // Fallbacks if no valid segments
-                if (x1 === 99999) x1 = 0;
-                if (y1 === 99999) y1 = 0;
-                if (x2 === -99999) x2 = 100;
-                if (y2 === -99999) y2 = 100;
-                
-                let merged = false;
-                // Merging with tolerance for disconnected parts (e.g., dots on i, j)
-                const mergeTolerance = 12; // pixels
-                for (let b of boxes) {
-                    const overlapX = (x1 - mergeTolerance) <= b.x2 && (x2 + mergeTolerance) >= b.x1;
-                    const overlapY = (y1 - mergeTolerance) <= b.y2 && (y2 + mergeTolerance) >= b.y1;
-                    if (overlapX && overlapY) {
-                        b.x1 = Math.min(b.x1, x1); b.y1 = Math.min(b.y1, y1);
-                        b.x2 = Math.max(b.x2, x2); b.y2 = Math.max(b.y2, y2);
-                        b.paths.push(p);
-                        merged = true;
-                        break;
-                    }
-                }
-                if (!merged) boxes.push({ x1, y1, x2, y2, paths: [p] });
-            });
-
-            // Sort boxes by Y (rows), then by X
-            boxes.sort((a, b) => {
-                if (Math.abs(a.y1 - b.y1) > 50) return a.y1 - b.y1; // Different rows
-                return a.x1 - b.x1;
-            });
-
-            // 3. Compile TTF Font
-            const notdefGlyph = new opentype.Glyph({
-                name: '.notdef', unicode: 0, advanceWidth: 500, path: new opentype.Path()
-            });
-            const spaceGlyph = new opentype.Glyph({
-                name: 'space', unicode: 32, advanceWidth: 300, path: new opentype.Path()
-            });
-            const fontGlyphs = [notdefGlyph, spaceGlyph];
-
-            const charsToMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".split('');
-            let charIndex = 0;
-
-            boxes.forEach((box) => {
-                const fontPath = new opentype.Path();
-                const actualBoxHeight = box.y2 > box.y1 ? box.y2 - box.y1 : 100;
-                const boxHeight = actualBoxHeight || 100;
-                const scale = 700 / boxHeight; // Fit to 700 units
-                
-                const weightNum = Number(aiMods.weight) || 400;
-                const scaleXNum = Number(aiMods.scaleX) || 1;
-                const scaleYNum = Number(aiMods.scaleY) || 1;
-                const slantNum = Number(aiMods.slant) || 0;
-                
-                const boldnessOffset = weightNum > 400 ? (weightNum - 400) / 20 : 0;
-                
-                box.paths.forEach((p: any) => {
-                    let firstSeg = true;
-                    p.segments.forEach((seg: any) => {
-                        const applyMods = (x: number, y: number, xOffset: number = 0) => {
-                            let nx = (x - box.x1) * scale * scaleXNum;
-                            let ny = ((box.y2 - y) + 100) * scale * scaleYNum; 
-                            // Stronger slant
-                            if (slantNum) nx += Math.tan(slantNum * 1.5 * Math.PI / 180) * ny;
-                            nx += boldnessOffset + xOffset;
-                            
-                            if (isNaN(nx) || !isFinite(nx)) nx = 0;
-                            if (isNaN(ny) || !isFinite(ny)) ny = 0;
-                            return [Math.round(nx), Math.round(ny)];
-                        };
-
-                        const drawSeg = (s: any, off: number = 0) => {
-                            if (s.type === 'L' && typeof s.x1 === 'number') {
-                                const [x1, y1] = applyMods(s.x1, s.y1, off);
-                                const [x2, y2] = applyMods(s.x2, s.y2, off);
-                                if (firstSeg && off === 0) fontPath.moveTo(x1, y1);
-                                else fontPath.lineTo(x2, y2);
-                            } else if (s.type === 'Q' && typeof s.x1 === 'number') {
-                                const [x1, y1] = applyMods(s.x1, s.y1, off);
-                                const [x2, y2] = applyMods(s.x2, s.y2, off);
-                                const [x3, y3] = applyMods(s.x3, s.y3, off);
-                                if (firstSeg && off === 0) fontPath.moveTo(x1, y1);
-                                else fontPath.quadraticCurveTo(x2, y2, x3, y3);
-                            }
-                        };
-
-                        drawSeg(seg, 0);
-                        // If bold requested, draw again with offset to simulate thickness
-                        if (weightNum > 500) {
-                            drawSeg(seg, 1.5);
-                            if (weightNum > 700) drawSeg(seg, 3);
-                        }
-                        firstSeg = false;
+                    const ai = new GoogleGenAI({ apiKey: geminiKey });
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.0-flash',
+                        contents: [{
+                            role: 'user',
+                            parts: [
+                                { inlineData: { mimeType, data: base64String } },
+                                { text: promptText }
+                            ]
+                        }]
                     });
-                });
 
-                const boxWidth = box.x2 > box.x1 ? box.x2 - box.x1 : 100;
-                let advanceW = Math.round(boxWidth * scale * scaleXNum + 50 + boldnessOffset);
-                if (isNaN(advanceW) || advanceW <= 0) advanceW = 500;
-                const char = charsToMap[charIndex] || 'A';
-                
-                if (boxes.length === 1) {
-                    // Single word mode: Map to all ASCII
-                    for(let i=33; i<=126; i++) {
-                        fontGlyphs.push(new opentype.Glyph({
-                            name: String.fromCharCode(i),
-                            unicode: i,
-                            advanceWidth: advanceW,
-                            path: fontPath
-                        }));
+                    const rawText = response.text ?? '';
+                    console.log('[Unified Font] AI response:', rawText);
+
+                    const jsonMatch = rawText.match(/\{[\s\S]*?"fontFamilyName"[\s\S]*?\}/);
+                    if (jsonMatch) {
+                        const json = JSON.parse(jsonMatch[0]);
+                        fontFamily = (json.fontFamilyName as string)?.trim() || 'Caveat';
+                        css = (json.cssText as string)?.trim() || `font-family: '${fontFamily}', cursive;`;
+                        if (!css.includes('font-family')) {
+                            css = `font-family: '${fontFamily}', cursive; ${css}`;
+                        }
+                        if (json.reason) console.log('[Unified Font] Reason:', json.reason);
+                    } else {
+                        throw new Error('AI tidak mengembalikan JSON yang valid');
                     }
-                } else {
-                    if (charIndex < charsToMap.length) {
-                        fontGlyphs.push(new opentype.Glyph({
-                            name: char,
-                            unicode: char.charCodeAt(0),
-                            advanceWidth: advanceW,
-                            path: fontPath
-                        }));
-                        charIndex++;
-                    }
+                } catch (aiErr: any) {
+                    console.warn('[Unified Font] AI failed, using keyword fallback:', aiErr?.message);
+                    const p = aiPrompt.toLowerCase();
+                    const isBold = p.includes('tebal') || p.includes('bold');
+                    const isItalic = p.includes('miring') || p.includes('italic');
+                    const isElegant = p.includes('elegan') || p.includes('elegant');
+                    const isMessy = p.includes('berantakan') || p.includes('messy') || p.includes('kasar');
+                    fontFamily = isElegant ? 'Dancing Script' : isMessy ? 'Rock Salt' : isBold ? 'Permanent Marker' : 'Caveat';
+                    css = `font-family: '${fontFamily}', cursive;${isBold ? ' font-weight: 700;' : ''}${isItalic ? ' font-style: italic;' : ''} letter-spacing: 1.2px; line-height: 1.6;`;
                 }
-            });
-
-            const fontName = `JagoNotaAI_${Date.now()}`;
-            const font = new opentype.Font({
-                familyName: fontName,
-                styleName: 'Regular',
-                unitsPerEm: 1000,
-                ascender: 800,
-                descender: -200,
-                glyphs: fontGlyphs
-            });
-
-            const arrayBuffer = font.toArrayBuffer();
-            const blob = new Blob([arrayBuffer], { type: 'font/ttf' });
-            const fontLocalUrl = URL.createObjectURL(blob);
-
-            // Update States
-            setGeneratedFontFamilyName(fontName);
-            setFontUrl(fontLocalUrl); // temporary URL for preview
-            setExtractedCSS('');
-            setGeneratedCssText(`font-family: '${fontName}';`);
-            setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
-            
-            // Inject to Document for preview
-            try {
-                const fontFace = new FontFace(fontName, `url(${fontLocalUrl})`);
-                await fontFace.load();
-                document.fonts.add(fontFace);
-            } catch (fontErr) {
-                console.warn('Failed to load font face for preview, but proceeding...', fontErr);
+            } else {
+                console.warn('[Unified Font] No API key — using default font');
             }
 
+            // Load the Google Font dynamically
+            loadGoogleFontDynamically(fontFamily);
+
+            // Inject preview CSS
+            let styleEl = document.getElementById('ai-font-preview-style') as HTMLStyleElement | null;
+            if (!styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.id = 'ai-font-preview-style';
+                document.head.appendChild(styleEl);
+            }
+            styleEl.textContent = `.ai-preview-font-temp { ${css} }`;
+
+            // Update states
+            setGeneratedFontFamilyName(fontFamily);
+            setGeneratedCssText(css);
+            setExtractedCSS('');
+            setFontUrl(''); // No actual font file URL for Google Fonts
+            setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
             setPreviewRenderKey(Date.now());
             setUnifiedStep('preview');
         } catch (error: any) {
             const msg = error?.message || String(error);
-            console.error('Failed to process font:', msg, error);
+            console.error('[Unified Font] Failed to process font:', msg, error);
             alert(`Gagal memproses font.\n\nDetail: ${msg}`);
             setUnifiedStep('idle');
         } finally {
             setIsProcessing(false);
         }
     };
+
+
 
     // ── UNIFIED: Save font to Supabase ──
     const handleSaveFont = async () => {
@@ -530,6 +365,8 @@ Return ONLY valid JSON:
 
         const updatedFonts = [...fonts, newFont];
         syncCustomFonts(updatedFonts.filter(f => f.isCustom));
+        // Notify other components about the new font
+        window.dispatchEvent(new Event('storage'));
 
         // Reset semua state setelah simpan
         handleResetUnified();
@@ -580,51 +417,89 @@ Return ONLY valid JSON:
             const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
 
             const adjustmentNote = aiPrompt.trim()
-                ? `The user also wants these adjustments: "${aiPrompt.trim()}". Apply them (e.g. tebal/bold → font-weight:700; miring/italic → transform:skewX(-10deg); elegan → prefer Dancing Script or Satisfy).`
-                : 'Replicate the handwriting as faithfully as possible.';
+                ? `Pengguna juga ingin penyesuaian ini: "${aiPrompt.trim()}". Terapkan (misalnya: tebal/bold → font-weight:700; miring/italic → font-style:italic; elegan → pilih Dancing Script atau Satisfy).`
+                : 'Replikasi gaya tulisan tangan seakurat mungkin.';
 
-            const promptText = `Analyze the handwriting style in this image carefully. ${adjustmentNote} Choose the closest Google Font from: Indie Flower, Caveat, Kalam, Pacifico, Dancing Script, Shadows Into Light, Permanent Marker, Amatic SC, Satisfy, Handlee. Generate CSS (font-family, letter-spacing, word-spacing, line-height, font-weight, font-style, transform) to match the handwriting with the requested adjustments. Respond ONLY with valid JSON, no markdown: {"fontFamilyName":"...","cssText":"..."}`;
+            const promptText = `Kamu adalah ahli tipografi. Analisis gambar tulisan tangan ini dengan saksama.
+${adjustmentNote}
+
+Pilih SATU Google Font yang paling mirip dari daftar ini: Indie Flower, Caveat, Kalam, Pacifico, Dancing Script, Shadows Into Light, Permanent Marker, Amatic SC, Satisfy, Handlee, Rock Salt, Patrick Hand SC, Delius, Homemade Apple.
+
+Lalu buat CSS string (font-family, letter-spacing, word-spacing, line-height, font-weight, font-style, transform) untuk mencocokkan tulisan tangan dengan penyesuaian yang diminta.
+
+BALAS HANYA dengan JSON valid, tanpa markdown:
+{"fontFamilyName":"<nama font>","cssText":"<string CSS lengkap>"}  `;
+
+            let fontFamily = 'Caveat';
+            let css = `font-family: 'Caveat', cursive; letter-spacing: 1px;`;
 
             if (apiKey) {
-                const ai = new GoogleGenAI({ apiKey });
-                let usedFallback = false;
-                let fontFamily = 'Caveat';
-                let css = `font-family: 'Caveat', cursive; letter-spacing: 1px;`;
-
                 try {
+                    const ai = new GoogleGenAI({ apiKey });
                     const response = await ai.models.generateContent({
                         model: 'gemini-2.0-flash',
-                        contents: [{ parts: [{ inlineData: { mimeType, data: base64String } }, { text: promptText }] }],
+                        contents: [{
+                            role: 'user',
+                            parts: [
+                                { inlineData: { mimeType, data: base64String } },
+                                { text: promptText }
+                            ]
+                        }]
                     });
                     const rawText = response.text ?? '';
-                    const jsonMatch = rawText.match(/\{[\s\S]*?"fontFamilyName"[\s\S]*?"cssText"[\s\S]*?\}/);
-                    const jsonStr = jsonMatch ? jsonMatch[0] : rawText.trim();
-                    const json = JSON.parse(jsonStr);
-                    fontFamily = (json.fontFamilyName as string) || 'Caveat';
-                    css = (json.cssText as string) || `font-family: '${fontFamily}', cursive;`;
-                } catch (apiErr: any) {
-                    console.warn('Gemini API error, using keyword fallback:', apiErr?.message);
-                    usedFallback = true;
-                }
+                    console.log('[AI Font] Raw response:', rawText);
 
-                if (usedFallback) {
+                    // Try to extract JSON from the response
+                    const jsonMatch = rawText.match(/\{[\s\S]*?"fontFamilyName"[\s\S]*?\}/);
+                    if (jsonMatch) {
+                        const json = JSON.parse(jsonMatch[0]);
+                        fontFamily = (json.fontFamilyName as string)?.trim() || 'Caveat';
+                        css = (json.cssText as string)?.trim() || `font-family: '${fontFamily}', cursive;`;
+                        
+                        // Ensure font-family is in the cssText
+                        if (!css.includes('font-family')) {
+                            css = `font-family: '${fontFamily}', cursive; ${css}`;
+                        }
+                    } else {
+                        console.warn('[AI Font] Could not parse JSON from response, using keyword fallback');
+                        throw new Error('Invalid JSON response from AI');
+                    }
+                } catch (apiErr: any) {
+                    console.warn('[AI Font] Gemini API error, using keyword fallback:', apiErr?.message);
+                    // Keyword-based fallback
                     const p = aiPrompt.toLowerCase();
                     const isBold = p.includes('tebal') || p.includes('bold');
                     const isItalic = p.includes('miring') || p.includes('italic');
                     const isElegant = p.includes('elegan') || p.includes('elegant');
-                    fontFamily = isElegant ? 'Dancing Script' : isBold ? 'Permanent Marker' : 'Caveat';
-                    css = `font-family: '${fontFamily}', cursive; ${isBold ? 'font-weight: 700;' : ''} ${isItalic ? 'transform: skewX(-10deg); display: inline-block;' : ''} letter-spacing: 1.2px; line-height: 1.6;`.trim();
+                    const isMessy = p.includes('berantakan') || p.includes('messy') || p.includes('kasar');
+                    fontFamily = isElegant ? 'Dancing Script' : isMessy ? 'Rock Salt' : isBold ? 'Permanent Marker' : 'Caveat';
+                    css = `font-family: '${fontFamily}', cursive;${isBold ? ' font-weight: 700;' : ''}${isItalic ? ' font-style: italic;' : ''} letter-spacing: 1.2px; line-height: 1.6;`;
                 }
-
-                setGeneratedFontFamilyName(fontFamily);
-                setGeneratedCssText(css);
-                setGeneratedFontName(`AI Font - ${Date.now()}`);
-                setAiFontNameInput(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
+            } else {
+                console.warn('[AI Font] No Gemini API key found, using default font');
             }
+
+            // Load the Google Font dynamically
+            loadGoogleFontDynamically(fontFamily);
+
+            setGeneratedFontFamilyName(fontFamily);
+            setGeneratedCssText(css);
+            setGeneratedFontName(`AI Font - ${Date.now()}`);
+            setAiFontNameInput(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
+
+            // Inject preview CSS
+            let styleEl = document.getElementById('ai-font-preview-style') as HTMLStyleElement | null;
+            if (!styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.id = 'ai-font-preview-style';
+                document.head.appendChild(styleEl);
+            }
+            styleEl.textContent = `.ai-preview-font-temp { ${css} }`;
+
             setAiStep('preview');
         } catch (error: any) {
             const msg = error?.message || String(error);
-            console.error('Failed to generate font:', msg, error);
+            console.error('[AI Font] Failed to generate font:', msg, error);
             alert(`Gagal menghasilkan font.\n\nDetail error: ${msg}`);
             setAiStep('idle');
         } finally {
@@ -665,6 +540,8 @@ Return ONLY valid JSON:
 
         const updatedFonts = [...fonts, newFont];
         syncCustomFonts(updatedFonts.filter(f => f.isCustom));
+        // Notify other components (like SidebarPropertyPanel) about the new font
+        window.dispatchEvent(new Event('storage'));
 
         setAiStep('idle');
         setAiUploadedImage(null);
