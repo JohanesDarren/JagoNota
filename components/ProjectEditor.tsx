@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { DocumentProject, CanvasElement, TextElement, SignatureElement } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { DocumentProject, CanvasElement, TextElement, SignatureElement, FontOption } from '../types';
 import ElementNode from './ElementNode';
 import { Download, Type, PenTool } from 'lucide-react';
 import { supabase } from '../utils';
@@ -11,35 +11,133 @@ interface Props {
 }
 
 export default function ProjectEditor({ project, onUpdateProject, onBack }: Props) {
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+    const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [customFonts, setCustomFontsState] = useState<FontOption[]>([]);
 
   const handleSaveProject = async () => {
-      try {
-          setSaving(true);
+       try {
+           setSaving(true);
+           const { data: { user } } = await supabase.auth.getUser();
+           if (!user) {
+               alert('Anda harus login terlebih dahulu!');
+               return;
+           }
+
+           const { error } = await supabase.from('projects').insert([
+               {
+                   title: project.name.trim(),
+                   content: project,
+                   template_id: project.document.id,
+                   user_id: user.id
+               }
+           ]);
+
+           if (error) throw error;
+           alert('Project berhasil disimpan!');
+       } catch (err: any) {
+           alert('Gagal menyimpan project: ' + err.message);
+       } finally {
+           setSaving(false);
+       }
+   };
+
+   // Load custom fonts from Supabase and localStorage, then inject CSS for canvas rendering
+   useEffect(() => {
+      const loadAndInjectFonts = async () => {
+        try {
           const { data: { user } } = await supabase.auth.getUser();
-          if (!user) {
-              alert('Anda harus login terlebih dahulu!');
-              return;
+          let customFonts: FontOption[] = [];
+          
+          // Load from Supabase if user is logged in
+          if (user) {
+            const { data, error } = await supabase
+              .from('fonts')
+              .select('*')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: true });
+              
+            if (!error && data) {
+              customFonts = data.map((font: any) => ({
+                id: font.id,
+                label: font.name,
+                value: `custom-font-${font.id}`,
+                isCustom: true,
+                cssText: font.cssText || '',
+                fontFamilyName: font.name,
+                font_url: font.font_url,
+                lineSpacing: font.line_spacing,
+                letterSpacing: font.letter_spacing,
+                user_id: font.user_id,
+                created_at: font.created_at
+              }));
+            }
           }
+          
+          // Also load from localStorage as fallback/supplement
+          const saved = localStorage.getItem('jagonota_custom_fonts');
+          if (saved) {
+            const localFonts: FontOption[] = JSON.parse(saved);
+            // Merge, preferring Supabase versions if there are conflicts by id
+            const supabaseIds = new Set(customFonts.map(f => f.id));
+            const mergedFonts = [
+              ...customFonts,
+              ...localFonts.filter(f => !supabaseIds.has(f.id))
+            ];
+            customFonts = mergedFonts;
+          }
+          
+          // Update state
+          setCustomFontsState(customFonts);
+          
+          // Re-inject @font-face CSS so custom fonts render on the canvas
+          const existing = document.getElementById('jagonota-custom-fonts-style');
+          if (existing) existing.remove();
+          const style = document.createElement('style');
+          style.id = 'jagonota-custom-fonts-style';
+          style.textContent = customFonts.map((f: FontOption) => {
+            const spacing = `letter-spacing: ${f.letterSpacing ?? 0}px; line-height: ${f.lineSpacing ?? 1};`;
+            if (f.font_url) {
+              const format = f.font_url.endsWith('.woff2') ? 'woff2' : f.font_url.endsWith('.woff') ? 'woff' : f.font_url.endsWith('.ttf') ? 'truetype' : f.font_url.endsWith('.otf') ? 'opentype' : 'woff2';
+              return `@font-face { font-family: '${f.value}'; src: url('${f.font_url}') format('${format}'); font-weight: normal; font-style: normal; }\n.${f.value} { font-family: '${f.value}', sans-serif; ${spacing} display: inline-block; }`;
+            }
+            if (f.cssText) {
+              return `.${f.value} { ${f.cssText} ${spacing} display: inline-block; }`;
+            }
+            return `.${f.value} { ${spacing} display: inline-block; }`;
+          }).join('\n');
+          document.head.appendChild(style);
 
-          const { error } = await supabase.from('projects').insert([
-              {
-                  title: project.name.trim(),
-                  content: project,
-                  template_id: project.document.id,
-                  user_id: user.id
-              }
-          ]);
+          // Load Google Fonts for AI-generated CSS fonts
+          customFonts.forEach((f: FontOption) => {
+            if (f.fontFamilyName && !f.font_url && !document.getElementById('gf-' + f.value)) {
+              const link = document.createElement('link');
+              link.id = 'gf-' + f.value;
+              link.rel = 'stylesheet';
+              link.href = `https://fonts.googleapis.com/css2?family=${f.fontFamilyName.replace(/\s+/g, '+')}&display=swap`;
+              document.head.appendChild(link);
+            }
+          });
+          
+          // Update localStorage with merged fonts for other components
+          localStorage.setItem('jagonota_custom_fonts', JSON.stringify(customFonts.filter(f => f.isCustom)));
+        } catch (e) {
+          console.error('Error loading custom fonts in project editor:', e);
+        }
+      };
 
-          if (error) throw error;
-          alert('Project berhasil disimpan!');
-      } catch (err: any) {
-          alert('Gagal menyimpan project: ' + err.message);
-      } finally {
-          setSaving(false);
-      }
-  };
+      loadAndInjectFonts();
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'jagonota_custom_fonts') {
+          loadAndInjectFonts();
+        }
+      });
+      return () => window.removeEventListener('storage', (e) => {
+        if (e.key === 'jagonota_custom_fonts') {
+          loadAndInjectFonts();
+        }
+      });
+    }, []);
 
   const selectedElement = project.projectElements.find(e => e.id === selectedElementId) || null;
 
@@ -297,31 +395,26 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                                         />
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Font Family</label>
-                                            <select 
-                                                value={txt.fontFamily} 
-                                                onChange={e => onUpdateElement(txt.id, { fontFamily: e.target.value })} 
-                                                className="w-full border border-gray-200 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
-                                            >
-                                                <option value="font-sans">Jakarta Sans</option>
-                                                <option value="font-serif">Lora Serif</option>
-                                                <option value="font-mono">Menlo Mono</option>
-                                                <option value="font-hand-1">Indie Flower</option>
-                                                <option value="font-hand-2">Caveat</option>
-                                                <option value="font-hand-3">Patrick Hand</option>
-                                                {(() => {
-                                                    const saved = localStorage.getItem('jagonota_custom_fonts');
-                                                    if (saved) {
-                                                        const customFonts = JSON.parse(saved);
-                                                        return customFonts.map((f: any) => (
-                                                            <option key={f.value} value={f.value}>{f.label} (Custom)</option>
-                                                        ));
-                                                    }
-                                                    return null;
-                                                })()}
-                                            </select>
-                                        </div>
+                                         <div>
+                                             <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Font Family</label>
+                                             <select 
+                                                 value={txt.fontFamily} 
+                                                 onChange={e => onUpdateElement(txt.id, { fontFamily: e.target.value })} 
+                                                 className="w-full border border-gray-200 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                                             >
+                                                 <option value="font-sans">Jakarta Sans</option>
+                                                 <option value="font-serif">Lora Serif</option>
+                                                 <option value="font-mono">Menlo Mono</option>
+                                                 <option value="font-hand-1">Indie Flower</option>
+                                                 <option value="font-hand-2">Caveat</option>
+                                                 <option value="font-hand-3">Patrick Hand</option>
+                                                 {customFonts.length > 0 ? (
+                                                   customFonts.map((f: FontOption) => (
+                                                     <option key={f.value} value={f.value}>{f.label} (Custom)</option>
+                                                   ))
+                                                 ) : null}
+                                             </select>
+                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1">Ukuran Font ({txt.fontSize}px)</label>
                                             <input 
