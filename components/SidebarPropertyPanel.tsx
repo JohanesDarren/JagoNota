@@ -267,14 +267,14 @@ export default function SidebarPropertyPanel({ selectedElement, onUpdateElement,
                                 >
                                     <option value="font-sans">Default Sans</option>
                                     <option value="font-serif">Default Serif</option>
-                                    <option value="font-hand-1">Indie Flower (Handwriting)</option>
-                                    <option value="font-hand-neat">Delius (Sangat Rapih)</option>
-                                    <option value="font-hand-normal">Kalam (Normal)</option>
-                                    <option value="font-hand-2">Caveat (Handwriting)</option>
-                                    <option value="font-hand-3">Patrick Hand</option>
-                                    <option value="font-hand-messy">Rock Salt (Berantakan)</option>
-                                    <option value="font-hand-messy-2">Homemade Apple</option>
-                                    
+                                    <option value="sys-font-kalam">Kalam (Santai &amp; Natural)</option>
+                                    <option value="sys-font-dancing">Dancing Script (Elegan Bersambung)</option>
+                                    <option value="sys-font-pacifico">Pacifico (Bulat &amp; Retro)</option>
+                                    <option value="sys-font-marker">Permanent Marker (Spidol Tebal)</option>
+                                    <option value="sys-font-amatic">Amatic SC (Artistik Papan Kapur)</option>
+                                    <option value="sys-font-rocksalt">Rock Salt (Berantakan / Grunge)</option>
+                                    <option value="sys-font-caveat">Caveat (Coretan Tebal)</option>
+                                    <option value="sys-font-gloria">Gloria Hallelujah (Bouncy &amp; Komik)</option>
                                     {customFonts.map((f: FontOption) => (
                                         <option key={f.value} value={f.value}>{f.label} (Custom)</option>
                                     ))}

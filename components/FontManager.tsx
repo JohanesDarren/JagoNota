@@ -885,7 +885,7 @@ BALAS HANYA dengan JSON valid, tanpa markdown:
                                             </button>
                                         )}
                                     </div>
-                                    <div className={`text-4xl text-gray-800 dark:text-gray-200 ${f.value.startsWith('custom-font-') ? f.value : ''}`} style={!f.value.startsWith('custom-font-') ? { fontFamily: f.value.replace('font-', '') } : {}}>
+                                    <div className={`text-4xl text-gray-800 dark:text-gray-200 ${f.isCustom ? '' : f.value}`} style={f.isCustom ? { fontFamily: f.fontFamilyName || f.label } : {}}>
                                         JagoNota 123
                                     </div>
                                 </div>

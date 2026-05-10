@@ -105,28 +105,94 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
 
   const canvasScale = Math.min((window.innerHeight - 150) / project.document.height, 1);
 
-  // Background template elements (locked)
+  // Background template elements (locked) — preserves ALL template settings faithfully
   const templateNodes = project.document.elements.map(el => {
       let content = null;
+
       if (el.type === 'text') {
-          content = <div style={{ fontSize: el.fontSize, fontWeight: el.fontWeight, color: el.color, textAlign: el.textAlign, width: '100%', height: '100%', overflow: 'hidden' }}>{el.content}</div>;
+          // Preserve: fontFamily, fontSize, fontWeight, fontStyle, textDecoration,
+          //           color, textAlign, letterSpacing, lineSpacing, roughness
+          const roughness = el.roughness ?? 0;
+          const textShadow = roughness > 0 ? `0 ${Math.min(roughness * 0.2, 1.2)}px ${Math.min(roughness * 0.8, 2.4)}px rgba(0,0,0,0.15)` : undefined;
+          const textFilter = roughness > 0 ? `blur(${Math.min(roughness * 0.08, 1.2)}px)` : undefined;
+          const isSystemFont = el.fontFamily.startsWith('sys-font-') || el.fontFamily.startsWith('font-hand') || el.fontFamily.startsWith('font-');
+          const isCustomFont = el.fontFamily.startsWith('custom-font-');
+          content = (
+              <div
+                  className={isSystemFont || isCustomFont ? el.fontFamily : ''}
+                  style={{
+                      width: '100%', height: '100%', overflow: 'hidden',
+                      fontSize: el.fontSize,
+                      fontWeight: el.fontWeight,
+                      fontStyle: el.fontStyle,
+                      textDecoration: el.textDecoration,
+                      color: el.color,
+                      textAlign: el.textAlign,
+                      letterSpacing: el.letterSpacing != null ? `${el.letterSpacing}px` : undefined,
+                      lineHeight: el.lineSpacing != null ? el.lineSpacing : undefined,
+                      filter: textFilter,
+                      textShadow,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: el.textAlign === 'center' ? 'center' : el.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                  }}
+              >
+                  {el.content}
+              </div>
+          );
+
       } else if (el.type === 'shape') {
-          if (el.shapeType === 'rectangle') {
-              content = <div style={{ width: '100%', height: '100%', backgroundColor: el.fillColor, border: el.strokeWidth ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none' }}></div>;
-          } else if (el.shapeType === 'circle') {
-              content = <div style={{ width: '100%', height: '100%', backgroundColor: el.fillColor, border: el.strokeWidth ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none', borderRadius: '50%' }}></div>;
-          } else if (el.shapeType === 'line') {
-              content = <div style={{ width: '100%', height: '100%', borderTop: `${el.strokeWidth}px solid ${el.strokeColor}` }}></div>;
+          // Preserve: fillColor, strokeColor, strokeWidth
+          if (el.shapeType === 'line') {
+              content = (
+                  <div className="w-full h-full flex items-center justify-center">
+                      <div style={{ width: '100%', height: el.strokeWidth || 1, backgroundColor: el.strokeColor || '#000' }} />
+                  </div>
+              );
+          } else {
+              content = (
+                  <div style={{
+                      width: '100%', height: '100%',
+                      backgroundColor: el.fillColor,
+                      border: el.strokeWidth ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none',
+                      borderRadius: el.shapeType === 'circle' ? '50%' : undefined,
+                  }} />
+              );
           }
+
       } else if (el.type === 'image') {
-          content = <img src={el.src} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />;
+          // Preserve: opacity, noise (stamp/stempel effect)
+          const noiseVal = el.noise ?? 0;
+          const filterId = `tmpl-img-filter-${el.id}`;
+          const turbFreq = 0.5 + noiseVal * 0.4;
+          const matrixVal = 1 - noiseVal * 0.4;
+          content = (
+              <>
+                  {noiseVal > 0 && (
+                      <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+                          <filter id={filterId}>
+                              <feTurbulence type="fractalNoise" baseFrequency={turbFreq} numOctaves="3" result="noise" />
+                              <feColorMatrix in="noise" type="matrix" values={`0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${matrixVal} 0`} result="noise-masked" />
+                              <feComposite in="SourceGraphic" in2="noise-masked" operator="out" result="stamped" />
+                          </filter>
+                      </svg>
+                  )}
+                  <img
+                      src={el.src}
+                      alt=""
+                      className="w-full h-full object-contain pointer-events-none select-none"
+                      style={{ filter: noiseVal > 0 ? `url(#${filterId})` : 'none' }}
+                  />
+              </>
+          );
+
       } else if (el.type === 'table') {
-          // Render a simple flat table for the background
+          // Preserve: borderColor, headerBgColor, textColor, fontSize, fontFamily, rowHeights, column widths
           content = (
               <div style={{ width: '100%', height: '100%', border: `1px solid ${el.borderColor || '#000'}`, display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', backgroundColor: el.headerBgColor, borderBottom: `1px solid ${el.borderColor || '#000'}` }}>
+                  <div style={{ display: 'flex', backgroundColor: el.headerBgColor || '#f9fafb', borderBottom: `1px solid ${el.borderColor || '#000'}`, fontWeight: 'bold' }}>
                       {el.columns.map((c, i) => (
-                          <div key={c.id} style={{ flex: c.width, padding: '4px 8px', borderRight: i < el.columns.length - 1 ? `1px solid ${el.borderColor || '#000'}` : 'none', fontSize: el.fontSize, color: el.textColor }}>
+                          <div key={c.id} style={{ flex: c.width, padding: '4px 8px', borderRight: i < el.columns.length - 1 ? `1px solid ${el.borderColor || '#000'}` : 'none', fontSize: el.fontSize || 12, color: el.textColor || '#000', fontFamily: el.fontFamily }}>
                               {c.header}
                           </div>
                       ))}
@@ -135,7 +201,7 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                       {el.rows.map((r, ri) => (
                           <div key={ri} style={{ display: 'flex', flex: el.rowHeights?.[ri] ?? 1, borderBottom: ri < el.rows.length - 1 ? `1px solid ${el.borderColor || '#000'}` : 'none' }}>
                               {r.map((cell, ci) => (
-                                  <div key={ci} style={{ flex: el.columns[ci].width, padding: '4px 8px', borderRight: ci < el.columns.length - 1 ? `1px solid ${el.borderColor || '#000'}` : 'none', fontSize: el.fontSize, color: el.textColor }}>
+                                  <div key={ci} style={{ flex: el.columns[ci].width, padding: '4px 8px', borderRight: ci < el.columns.length - 1 ? `1px solid ${el.borderColor || '#000'}` : 'none', fontSize: el.fontSize || 12, color: el.textColor || '#000', fontFamily: el.fontFamily }}>
                                       {cell}
                                   </div>
                               ))}
@@ -144,10 +210,35 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                   </div>
               </div>
           );
+
+      } else if (el.type === 'signature') {
+          // Preserve: opacity, roughness
+          const sig = el as any;
+          const roughSigId = `tmpl-sig-${el.id}`;
+          content = (
+              <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', opacity: sig.opacity ?? 1 }}>
+                  {sig.roughness > 0 && (
+                      <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+                          <defs>
+                              <filter id={roughSigId}>
+                                  <feTurbulence type="fractalNoise" baseFrequency={0.05 + sig.roughness * 0.1} numOctaves="2" result="noise" />
+                                  <feDisplacementMap in="SourceGraphic" in2="noise" scale={sig.roughness * 5} xChannelSelector="R" yChannelSelector="G" />
+                              </filter>
+                          </defs>
+                      </svg>
+                  )}
+                  <img
+                      src={sig.src}
+                      alt="Signature"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', filter: sig.roughness > 0 ? `url(#${roughSigId})` : 'none' }}
+                  />
+              </div>
+          );
       }
-      
+
       return (
-          <div key={`bg-${el.id}`} style={{ position: 'absolute', left: el.x, top: el.y, width: el.width, height: el.height, pointerEvents: 'none', opacity: 0.8 }}>
+          // Use element's own opacity — not hardcoded 0.8
+          <div key={`bg-${el.id}`} style={{ position: 'absolute', left: el.x, top: el.y, width: el.width, height: el.height, pointerEvents: 'none', opacity: el.opacity ?? 1 }}>
               {content}
           </div>
       );
@@ -360,8 +451,8 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                     setSelectedElementId(null);
                 }}
             >
-                {/* Background Template Layer (Locked) */}
-                <div style={{ position: 'absolute', inset: 0, opacity: 0.9 }}>
+                {/* Background Template Layer (Locked) — each element uses its own opacity */}
+                <div style={{ position: 'absolute', inset: 0 }}>
                     {templateNodes}
                 </div>
 

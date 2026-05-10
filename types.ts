@@ -117,12 +117,13 @@ export interface FontOption {
 }
 
 export const INITIAL_FONTS: FontOption[] = [
-  { label: 'Indie Flower (Standard)', value: 'font-hand-1' },
-  { label: 'Delius (Sangat Rapih)', value: 'font-hand-neat' },
-  { label: 'Kalam (Biasa / Normal)', value: 'font-hand-normal' },
-  { label: 'Caveat (Tebal)', value: 'font-hand-2' },
-  { label: 'Patrick Hand (Anak Sekolah)', value: 'font-hand-3' },
-  { label: 'Rock Salt (Berantakan)', value: 'font-hand-messy' },
-  { label: 'Homemade Apple (Cakar Ayam)', value: 'font-hand-messy-2' },
+  { label: 'Kalam (Santai & Natural)', value: 'sys-font-kalam' },
+  { label: 'Dancing Script (Elegan Bersambung)', value: 'sys-font-dancing' },
+  { label: 'Pacifico (Bulat & Retro)', value: 'sys-font-pacifico' },
+  { label: 'Permanent Marker (Spidol Tebal)', value: 'sys-font-marker' },
+  { label: 'Amatic SC (Artistik Papan Kapur)', value: 'sys-font-amatic' },
+  { label: 'Rock Salt (Berantakan / Grunge)', value: 'sys-font-rocksalt' },
+  { label: 'Caveat (Coretan Tebal)', value: 'sys-font-caveat' },
+  { label: 'Gloria Hallelujah (Bouncy & Komik)', value: 'sys-font-gloria' },
 ];
 declare module 'imagetracerjs';
