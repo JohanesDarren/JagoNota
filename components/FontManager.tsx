@@ -100,15 +100,30 @@ export default function FontManager({ onBack }: Props) {
         const cssToUse = generatedCssText || extractedCSS;
         const familyToUse = generatedFontFamilyName || extractedFontFamilyInfo;
         if (!cssToUse || !familyToUse) return;
-        loadGoogleFontDynamically(familyToUse);
+        
+        if (!fontUrl) {
+            loadGoogleFontDynamically(familyToUse);
+        }
+
         let styleEl = document.getElementById('ai-font-preview-style') as HTMLStyleElement | null;
         if (!styleEl) {
             styleEl = document.createElement('style');
             styleEl.id = 'ai-font-preview-style';
             document.head.appendChild(styleEl);
         }
-        styleEl.textContent = `.ai-preview-font-temp { ${cssToUse} }`;
-    }, [generatedCssText, generatedFontFamilyName, extractedCSS, extractedFontFamilyInfo]);
+        
+        if (fontUrl) {
+            styleEl.textContent = `
+                @font-face {
+                    font-family: '${familyToUse}';
+                    src: url('${fontUrl}') format('truetype');
+                }
+                .ai-preview-font-temp { ${cssToUse} }
+            `;
+        } else {
+            styleEl.textContent = `.ai-preview-font-temp { ${cssToUse} }`;
+        }
+    }, [generatedCssText, generatedFontFamilyName, extractedCSS, extractedFontFamilyInfo, fontUrl]);
 
     const syncCustomFonts = (customFonts: FontOption[]) => {
         const updatedFonts = [...INITIAL_FONTS, ...customFonts];
@@ -203,97 +218,51 @@ export default function FontManager({ onBack }: Props) {
         setIsProcessing(true);
         setUnifiedStep('processing');
 
-        const geminiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-
         try {
-            const base64String = uploadedImage.split(',')[1];
-            const mimeType = uploadedImage.split(',')[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-
-            const adjustmentNote = aiPrompt.trim()
-                ? `Pengguna juga ingin penyesuaian ini: "${aiPrompt.trim()}". Terapkan sesuai (tebal/bold → font-weight:700; miring/italic → font-style:italic; elegan → pilih Dancing Script atau Satisfy; berantakan/kasar → Rock Salt).`
-                : 'Replikasi gaya tulisan tangan seakurat mungkin tanpa modifikasi tambahan.';
-
-            const promptText = `Kamu adalah pakar tipografi digital. Analisis gambar tulisan tangan ini secara mendalam.
-${adjustmentNote}
-
-Tugas kamu:
-1. Identifikasi gaya tulisan (rapi/berantakan, tegak/miring, tebal/tipis, kasual/formal)
-2. Pilih SATU Google Font terbaik dari daftar: Indie Flower, Caveat, Kalam, Pacifico, Dancing Script, Shadows Into Light, Permanent Marker, Amatic SC, Satisfy, Handlee, Rock Salt, Patrick Hand SC, Delius, Homemade Apple, Caveat Brush, Gloria Hallelujah
-3. Buat CSS lengkap untuk mencocokkan gaya tulisan tangan
-
-BALAS HANYA JSON valid, tanpa markdown:
-{"fontFamilyName":"<nama font>","cssText":"<CSS properties string>","reason":"<alasan singkat pilihan font>"}`;
-
-            let fontFamily = 'Caveat';
-            let css = `font-family: 'Caveat', cursive; letter-spacing: 1px; line-height: 1.5;`;
-
+            // Panggil API Python AI (Flask)
+            const response = await fetch(uploadedImage);
+            const blob = await response.blob();
+            
+            const formData = new FormData();
+            formData.append('image', blob, 'handwriting.png');
+            if (aiPrompt.trim()) {
+                formData.append('prompt', aiPrompt.trim());
+            }
+            const geminiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
             if (geminiKey) {
-                try {
-                    const ai = new GoogleGenAI({ apiKey: geminiKey });
-                    const response = await ai.models.generateContent({
-                        model: 'gemini-2.0-flash',
-                        contents: [{
-                            role: 'user',
-                            parts: [
-                                { inlineData: { mimeType, data: base64String } },
-                                { text: promptText }
-                            ]
-                        }]
-                    });
-
-                    const rawText = response.text ?? '';
-                    console.log('[Unified Font] AI response:', rawText);
-
-                    const jsonMatch = rawText.match(/\{[\s\S]*?"fontFamilyName"[\s\S]*?\}/);
-                    if (jsonMatch) {
-                        const json = JSON.parse(jsonMatch[0]);
-                        fontFamily = (json.fontFamilyName as string)?.trim() || 'Caveat';
-                        css = (json.cssText as string)?.trim() || `font-family: '${fontFamily}', cursive;`;
-                        if (!css.includes('font-family')) {
-                            css = `font-family: '${fontFamily}', cursive; ${css}`;
-                        }
-                        if (json.reason) console.log('[Unified Font] Reason:', json.reason);
-                    } else {
-                        throw new Error('AI tidak mengembalikan JSON yang valid');
-                    }
-                } catch (aiErr: any) {
-                    console.warn('[Unified Font] AI failed, using keyword fallback:', aiErr?.message);
-                    const p = aiPrompt.toLowerCase();
-                    const isBold = p.includes('tebal') || p.includes('bold');
-                    const isItalic = p.includes('miring') || p.includes('italic');
-                    const isElegant = p.includes('elegan') || p.includes('elegant');
-                    const isMessy = p.includes('berantakan') || p.includes('messy') || p.includes('kasar');
-                    fontFamily = isElegant ? 'Dancing Script' : isMessy ? 'Rock Salt' : isBold ? 'Permanent Marker' : 'Caveat';
-                    css = `font-family: '${fontFamily}', cursive;${isBold ? ' font-weight: 700;' : ''}${isItalic ? ' font-style: italic;' : ''} letter-spacing: 1.2px; line-height: 1.6;`;
-                }
-            } else {
-                console.warn('[Unified Font] No API key — using default font');
+                formData.append('geminiKey', geminiKey);
             }
 
-            // Load the Google Font dynamically
-            loadGoogleFontDynamically(fontFamily);
+            const apiRes = await fetch('http://localhost:5000/api/generate-font', {
+                method: 'POST',
+                body: formData
+            });
 
-            // Inject preview CSS
-            let styleEl = document.getElementById('ai-font-preview-style') as HTMLStyleElement | null;
-            if (!styleEl) {
-                styleEl = document.createElement('style');
-                styleEl.id = 'ai-font-preview-style';
-                document.head.appendChild(styleEl);
+            if (!apiRes.ok) {
+                throw new Error(`Server error: ${apiRes.status}`);
             }
-            styleEl.textContent = `.ai-preview-font-temp { ${css} }`;
 
-            // Update states
+            const data = await apiRes.json();
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            const fontFamily = data.font_name || 'JagoFont_Generated';
+            const finalUrl = data.font_url;
+            
+            const css = `font-family: '${fontFamily}', sans-serif; letter-spacing: 1px; line-height: 1.5;`;
+
             setGeneratedFontFamilyName(fontFamily);
             setGeneratedCssText(css);
             setExtractedCSS('');
-            setFontUrl(''); // No actual font file URL for Google Fonts
-            setNewFontName(`Font AI ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`);
+            setFontUrl(finalUrl); 
+            setNewFontName(fontFamily);
             setPreviewRenderKey(Date.now());
             setUnifiedStep('preview');
         } catch (error: any) {
             const msg = error?.message || String(error);
             console.error('[Unified Font] Failed to process font:', msg, error);
-            alert(`Gagal memproses font.\n\nDetail: ${msg}`);
+            alert(`Gagal memproses font. Pastikan AI Engine (Flask) berjalan di localhost:5000.\n\nDetail: ${msg}`);
             setUnifiedStep('idle');
         } finally {
             setIsProcessing(false);
@@ -309,32 +278,8 @@ BALAS HANYA JSON valid, tanpa markdown:
 
         let finalFontUrl = fontUrl;
 
-        // Upload local blob URL to Supabase Storage
-        if (fontUrl && fontUrl.startsWith('blob:')) {
-            try {
-                const response = await fetch(fontUrl);
-                const blob = await response.blob();
-                const fileName = `${currentUserId}_${Date.now()}.ttf`;
-                
-                const { data: uploadData, error: uploadError } = await supabase.storage
-                    .from('fonts')
-                    .upload(fileName, blob, {
-                        cacheControl: '3600',
-                        upsert: false,
-                        contentType: 'font/ttf'
-                    });
-                    
-                if (uploadError) {
-                    throw new Error("Gagal mengunggah file font: " + uploadError.message);
-                }
-                
-                const { data: publicUrlData } = supabase.storage.from('fonts').getPublicUrl(fileName);
-                finalFontUrl = publicUrlData.publicUrl;
-            } catch (err: any) {
-                alert(err.message);
-                return;
-            }
-        }
+        // Bypassing Supabase Storage bucket because of user permission issues.
+        // The base64 data URL from the Python engine will be saved directly into the PostgreSQL text column.
 
         const { data, error } = await supabase.from('fonts').insert([{
             user_id: currentUserId,

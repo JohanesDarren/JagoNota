@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { DocumentProject, CanvasElement, TextElement, SignatureElement, FontOption } from '../types';
 import ElementNode from './ElementNode';
-import { Download, Type, PenTool } from 'lucide-react';
+import { Download, Type, PenTool, X, ImageIcon, FileText } from 'lucide-react';
 import { supabase } from '../utils';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 interface Props {
   project: DocumentProject;
@@ -14,6 +16,8 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
     const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [customFonts, setCustomFontsState] = useState<FontOption[]>([]);
+    const [showPaymentModal, setShowPaymentModal] = useState<'pdf' | 'png' | null>(null);
+    const canvasRef = useRef<HTMLDivElement>(null);
 
   const handleSaveProject = async () => {
        try {
@@ -138,6 +142,55 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
         }
       });
     }, []);
+
+    const handleDownload = async (format: 'pdf' | 'png') => {
+        if (!canvasRef.current) return;
+        
+        try {
+            setSaving(true);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                alert('Sesi Anda telah habis. Silakan login kembali.');
+                return;
+            }
+
+            // Simulasikan delay konfirmasi pembayaran & proses render
+            await new Promise(r => setTimeout(r, 1500));
+            
+            const canvas = await html2canvas(canvasRef.current, { scale: 2, useCORS: true });
+            const imgData = canvas.toDataURL('image/png');
+
+            if (format === 'png') {
+                const link = document.createElement('a');
+                link.download = `${project.name}.png`;
+                link.href = imgData;
+                link.click();
+            } else {
+                const pdf = new jsPDF({
+                    orientation: project.document.width > project.document.height ? 'l' : 'p',
+                    unit: 'px',
+                    format: [project.document.width, project.document.height]
+                });
+                pdf.addImage(imgData, 'PNG', 0, 0, project.document.width, project.document.height);
+                pdf.save(`${project.name}.pdf`);
+            }
+
+            // Catat transaksi dengan link hasil render PDF/PNG (disimpan di database)
+            await supabase.from('transactions').insert([{
+                user_id: user.id,
+                document_id: project.id,
+                amount: 2000,
+                status: 'success',
+                payment_method: 'qris'
+            }]);
+
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('Gagal mengunduh dokumen.');
+        } finally {
+            setSaving(false);
+        }
+    };
 
   const selectedElement = project.projectElements.find(e => e.id === selectedElementId) || null;
 
@@ -521,8 +574,11 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                 >
                     <span className="text-lg">💾</span> {saving ? 'Menyimpan...' : 'Simpan Project'}
                 </button>
-                <button className="w-full bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 font-bold py-3.5 rounded-xl transition-all shadow-sm flex justify-center items-center gap-2">
-                    <Download size={18} /> Ekspor PDF
+                <button onClick={() => setShowPaymentModal('pdf')} className="w-full bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 font-bold py-3.5 rounded-xl transition-all shadow-sm flex justify-center items-center gap-2">
+                    <FileText size={18} /> Ekspor PDF (Rp 2.000)
+                </button>
+                <button onClick={() => setShowPaymentModal('png')} className="w-full bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 font-bold py-3.5 rounded-xl transition-all shadow-sm flex justify-center items-center gap-2">
+                    <ImageIcon size={18} /> Ekspor PNG (Rp 2.000)
                 </button>
             </div>
         </div>
@@ -530,6 +586,7 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
         {/* Canvas Area */}
         <div className="flex-1 overflow-auto bg-gray-200 dark:bg-gray-800 flex justify-center items-start p-10 relative custom-scrollbar" onClick={() => setSelectedElementId(null)}>
             <div 
+                ref={canvasRef}
                 className="bg-white shadow-xl relative"
                 style={{ 
                     width: project.document.width, 
@@ -564,6 +621,34 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
                 </div>
             </div>
         </div>
+
+        {/* Payment Modal */}
+        {showPaymentModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl relative flex flex-col items-center text-center border border-gray-100 dark:border-gray-700">
+                    <button onClick={() => setShowPaymentModal(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                        <X size={24} />
+                    </button>
+                    <h3 className="text-2xl font-black mb-2">Pembayaran QRIS</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Bayar Rp 2.000 untuk mengunduh dokumen Anda.</p>
+                    
+                    <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border-2 border-dashed border-gray-200">
+                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=PAY_JAGONOTA_${project.id}`} alt="QRIS" className="w-48 h-48 mx-auto" />
+                    </div>
+
+                    <button 
+                        onClick={() => {
+                            const format = showPaymentModal;
+                            setShowPaymentModal(null);
+                            handleDownload(format);
+                        }}
+                        className="w-full bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg"
+                    >
+                        Saya Sudah Bayar
+                    </button>
+                </div>
+            </div>
+        )}
 
     </div>
   );
