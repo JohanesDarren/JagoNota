@@ -1,227 +1,225 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 import os
 import cv2
 import numpy as np
-import random
-import urllib.request
-import urllib.parse
-import urllib.error
-import json
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from dotenv import load_dotenv
+from supabase import create_client, Client
+from werkzeug.utils import secure_filename
 from fontTools.ttLib import TTFont
+from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.ttGlyphPen import TTGlyphPen
 import io
+import uuid
 import base64
+
+load_dotenv()
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 app = Flask(__name__)
 CORS(app)
 
-GOOGLE_FONTS_TTF_MAP = {
-    "Caveat": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Regular.ttf",
-    "Indie Flower": "https://github.com/google/fonts/raw/main/ofl/indieflower/IndieFlower-Regular.ttf",
-    "Kalam": "https://github.com/google/fonts/raw/main/ofl/kalam/Kalam-Regular.ttf",
-    "Pacifico": "https://github.com/google/fonts/raw/main/ofl/pacifico/Pacifico-Regular.ttf",
-    "Dancing Script": "https://github.com/google/fonts/raw/main/ofl/dancingscript/DancingScript-Regular.ttf",
-    "Shadows Into Light": "https://github.com/google/fonts/raw/main/ofl/shadowsintolight/ShadowsIntoLight.ttf",
-    "Permanent Marker": "https://github.com/google/fonts/raw/main/apache/permanentmarker/PermanentMarker-Regular.ttf",
-    "Amatic SC": "https://github.com/google/fonts/raw/main/ofl/amaticsc/AmaticSC-Regular.ttf",
-    "Satisfy": "https://github.com/google/fonts/raw/main/apache/satisfy/Satisfy-Regular.ttf",
-    "Handlee": "https://github.com/google/fonts/raw/main/ofl/handlee/Handlee-Regular.ttf",
-    "Rock Salt": "https://github.com/google/fonts/raw/main/apache/rocksalt/RockSalt-Regular.ttf",
-    "Patrick Hand SC": "https://github.com/google/fonts/raw/main/ofl/patrickhandsc/PatrickHandSC-Regular.ttf",
-    "Delius": "https://github.com/google/fonts/raw/main/ofl/delius/Delius-Regular.ttf",
-    "Homemade Apple": "https://github.com/google/fonts/raw/main/apache/homemadeapple/HomemadeApple-Regular.ttf",
-    "Caveat Brush": "https://github.com/google/fonts/raw/main/ofl/caveatbrush/CaveatBrush-Regular.ttf",
-    "Gloria Hallelujah": "https://github.com/google/fonts/raw/main/ofl/gloriahallelujah/GloriaHallelujah.ttf"
-}
+# Character set to map sequentially (A-Z, a-z, 0-9)
+CHAR_SET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-def analyze_handwriting_bytes(file_bytes):
-    nparr = np.frombuffer(file_bytes, np.uint8)
+def extract_character_contours(image_bytes):
+    """
+    Extracts individual character contours from an image and sorts them left-to-right, top-to-bottom.
+    Returns a list of contour lists (each character can have multiple contours like holes).
+    """
+    nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
     
-    default_metrics = {'jaggedness': 1.0, 'aspect_ratio': 1.0, 'slant': 0.0, 'unevenness': 0.0}
-    if img is None: return default_metrics
-    
+    if img is None:
+        raise ValueError("Gambar tidak valid")
+        
     _, thresh = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    
+    # Gunakan RETR_EXTERNAL untuk kesederhanaan pemisahan karakter 
+    # (Untuk hasil produksi yang mendalam, Anda bisa gunakan RETR_CCOMP untuk menangani lubang huruf O/A)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    if not contours: return default_metrics
-         
-    total_jaggedness, total_aspect, total_slant = 0, 0, 0
-    y_centers = []
-    heights = []
-    valid_contours = 0
+    if not contours:
+        raise ValueError("Tidak ada tulisan yang ditemukan")
+        
+    # Saring noise (ukuran terlalu kecil)
+    valid_contours = []
+    bounding_boxes = []
     
     for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 50: continue
-            
-        perimeter = cv2.arcLength(cnt, True)
-        jaggedness = (perimeter * perimeter) / (4 * np.pi * area) if area > 0 else 1.0
-            
         x, y, w, h = cv2.boundingRect(cnt)
-        aspect = w / h if h > 0 else 1.0
-        
-        rect = cv2.minAreaRect(cnt)
-        angle = rect[2]
-        if angle > 45: angle = 90 - angle
+        if w > 10 and h > 10: # Filter debu/noise
+            valid_contours.append(cnt)
+            bounding_boxes.append((x, y, w, h))
             
-        total_jaggedness += jaggedness
-        total_aspect += aspect
-        total_slant += angle
-        y_centers.append(y + h/2)
-        heights.append(h)
-        valid_contours += 1
-        
-    if valid_contours == 0: return default_metrics
+    if not valid_contours:
+        raise ValueError("Karakter terlalu kecil atau tidak jelas")
+            
+    # Urutkan karakter dari kiri ke kanan berdasarkan kotak batas (X)
+    # Anda dapat meningkatkan logika ini menjadi Atas-Bawah -> Kiri-Kanan jika multi-baris
+    sorted_data = sorted(zip(bounding_boxes, valid_contours), key=lambda b: b[0][0])
     
-    # Calculate unevenness (variance of y centers normalized by median height)
-    median_h = np.median(heights) if heights else 1.0
-    y_variance = np.var(y_centers) if len(y_centers) > 1 else 0
-    unevenness = min(y_variance / (median_h * median_h + 1), 2.0) # Cap to 2.0
-        
-    return {
-        'jaggedness': min(total_jaggedness / valid_contours, 15.0),
-        'aspect_ratio': total_aspect / valid_contours,
-        'slant': total_slant / valid_contours,
-        'unevenness': unevenness
-    }
+    return [cnt for _, cnt in sorted_data]
 
-def get_gemini_font_match(api_key, file_bytes, prompt_note=""):
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        b64_img = base64.b64encode(file_bytes).decode('utf-8')
-        font_list = ", ".join(GOOGLE_FONTS_TTF_MAP.keys())
-        
-        prompt = (f"Kamu adalah pakar tipografi digital. Analisis gambar tulisan tangan ini. "
-                  f"Pesan pengguna: {prompt_note}\n\n"
-                  f"Pilih SATU font terbaik dari daftar: {font_list}. "
-                  "HANYA kembalikan JSON valid tanpa markdown, dengan format: "
-                  '{"fontFamilyName": "<nama font>", "reason": "<alasan>"}')
-                  
-        payload = {
-            "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": b64_img}}]}],
-            "generationConfig": {"responseMimeType": "application/json"}
-        }
-        
-        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            text = res_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '{}')
-            parsed = json.loads(text)
-            
-            font_name = parsed.get("fontFamilyName", "Caveat")
-            if font_name not in GOOGLE_FONTS_TTF_MAP: font_name = "Caveat"
-            return font_name
-    except Exception as e:
-        print(f"[AI Engine] Gemini fallback: {e}")
-        return "Caveat"
-
-def generate_custom_ttf_bytes(cv_metrics, base_font_name):
-    base_font_url = GOOGLE_FONTS_TTF_MAP.get(base_font_name, GOOGLE_FONTS_TTF_MAP["Caveat"])
-    base_font_path = f"base_{base_font_name.replace(' ', '')}.ttf"
+def build_ttf_font(contours_list, font_name="GeneratedFont"):
+    """
+    Kompilasi kontur OpenCV menjadi file TTF fisik (Byte Array).
+    """
+    fb = FontBuilder(1024, isTTF=True)
     
-    if not os.path.exists(base_font_path):
-        print(f"[AI Engine] Downloading base font {base_font_name}...")
-        try:
-            req = urllib.request.Request(base_font_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response, open(base_font_path, 'wb') as out_file:
-                out_file.write(response.read())
-        except Exception as e:
-            print(f"[AI Engine] Failed to download {base_font_url}. Using PatrickHand fallback. Error: {e}")
-            base_font_path = "base_PatrickHand.ttf"
-            if not os.path.exists(base_font_path):
-                fallback_url = "https://github.com/google/fonts/raw/main/ofl/patrickhand/PatrickHand-Regular.ttf"
-                req = urllib.request.Request(fallback_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as response, open(base_font_path, 'wb') as out_file:
-                    out_file.write(response.read())
-
-    font = TTFont(base_font_path)
-    glyf = font.get('glyf')
+    # Batasi mapping sesuai jumlah karakter yang tersedia di CHAR_SET
+    num_chars = min(len(contours_list), len(CHAR_SET))
+    used_chars = list(CHAR_SET[:num_chars])
     
-    if glyf:
-        # 1. Map CV metrics to Advanced FontTools Transform parameters
-        aspect_ratio = cv_metrics.get('aspect_ratio', 1.0)
-        slant = cv_metrics.get('slant', 0.0)
-        jaggedness = cv_metrics.get('jaggedness', 1.0)
-        unevenness = cv_metrics.get('unevenness', 0.0)
+    fb.setupGlyphOrder([".notdef"] + used_chars)
+    fb.setupCharacterMap({ord(c): c for c in used_chars})
+    
+    glyphs = {}
+    
+    # Buat glyph default kosong
+    pen = TTGlyphPen(None)
+    glyphs[".notdef"] = pen.glyph()
+    
+    # Tinggi standar font untuk inversi Y
+    ASCENT = 800
+    
+    for i, char in enumerate(used_chars):
+        pen = TTGlyphPen(None)
+        cnt = contours_list[i]
         
-        # Scaling limits (avoid illegibility)
-        width_scale = max(0.8, min(aspect_ratio / 0.8, 1.3)) 
-        shear_factor = (slant / 90.0) * 0.3 # Reduced shear for readability
-        noise_level = min(int(jaggedness), 3) # Jitter up to 3 units max
-        baseline_bounce = int(unevenness * 50) # Shift entire glyph Y by up to N units
+        # Ekstrak titik-titik polygon
+        pts = cnt.reshape(-1, 2)
+        
+        # Hitung bounding box karakter untuk menggesernya ke Origin (0,0) lokal glyph
+        x, y, w, h = cv2.boundingRect(cnt)
+        
+        # Scaling agar fit di dalam font
+        scale = 600.0 / max(h, 1) # Normalisasi tinggi menjadi 600 unit
+        
+        if len(pts) > 2:
+            start_pt = pts[0]
+            # Geser ke origin (x, y) dan invert sumbu Y, lalu scale
+            px = (start_pt[0] - x) * scale
+            py = ASCENT - ((start_pt[1] - y) * scale)
+            pen.moveTo((px, py))
             
-        for glyph_name in glyf.keys():
-            glyph = glyf[glyph_name]
+            for pt in pts[1:]:
+                px = (pt[0] - x) * scale
+                py = ASCENT - ((pt[1] - y) * scale)
+                pen.lineTo((px, py))
+                
+            pen.closePath()
             
-            # Simulate jumpy baseline on a per-glyph level
-            glyph_y_offset = random.randint(-baseline_bounce, baseline_bounce) if baseline_bounce > 0 else 0
-            
-            if getattr(glyph, 'coordinates', None) is not None:
-                for i in range(len(glyph.coordinates)):
-                    x, y = glyph.coordinates[i]
-                    
-                    # Apply horizontal scaling, shearing, and per-glyph baseline bounce
-                    nx = int((x * width_scale) + (y * shear_factor))
-                    ny = int(y + glyph_y_offset)
-                    
-                    # Apply path shakiness (jaggedness)
-                    if noise_level > 0:
-                        nx += random.randint(-noise_level, noise_level)
-                        ny += random.randint(-noise_level, noise_level)
-                        
-                    glyph.coordinates[i] = (nx, ny)
-                    
-    out_io = io.BytesIO()
-    font.save(out_io)
-    return out_io.getvalue()
-
-@app.route('/', methods=['GET'])
-def index():
-    return jsonify({
-        "status": "online",
-        "service": "JagoNota AI Font Engine (Advanced Style Perturbation)",
-        "endpoints": {"POST /api/generate-font": "Upload 'image' to generate styled TTF Base64"}
-    })
+        glyphs[char] = pen.glyph()
+        
+    fb.setupGlyf(glyphs)
+    
+    # Setup Metrics
+    metrics = {".notdef": (500, 0)}
+    for i, char in enumerate(used_chars):
+        # Lebar menyesuaikan bounding box
+        x, y, w, h = cv2.boundingRect(contours_list[i])
+        scale = 600.0 / max(h, 1)
+        scaled_width = int(w * scale) + 100 # +100 untuk sedikit ruang kosong
+        metrics[char] = (scaled_width, 0)
+        
+    fb.setupHorizontalMetrics(metrics)
+    fb.setupHorizontalHeader(ascent=ASCENT, descent=-200)
+    fb.setupNameTable({"familyName": font_name, "styleName": "Regular"})
+    fb.setupOS2(sTypoAscender=ASCENT, sTypoDescender=-200)
+    fb.setupPost()
+    
+    output_stream = io.BytesIO()
+    fb.save(output_stream)
+    return output_stream.getvalue()
 
 @app.route('/api/generate-font', methods=['POST'])
 def generate_font():
+    print("[AI Engine] Memulai True Vector Font Generation...")
     if 'image' not in request.files:
         return jsonify({"error": "No image provided"}), 400
         
     file = request.files['image']
-    gemini_key = request.form.get('geminiKey', '')
-    prompt_note = request.form.get('prompt', '')
+    user_id = request.form.get('user_id')
+    font_name = request.form.get('font_name', 'My Handwriting')
     
-    if file.filename == '':
-        return jsonify({"error": "Empty file"}), 400
+    if not supabase:
+        return jsonify({"error": "Supabase Service Role Key is missing in .env"}), 500
         
-    file_bytes = file.read()
-    print("[AI Engine] Analyzing handwriting image...")
-    
-    font_name = "Caveat"
-    if gemini_key:
-        print("[AI Engine] Querying Gemini Vision API...")
-        font_name = get_gemini_font_match(gemini_key, file_bytes, prompt_note)
-        print(f"[AI Engine] AI Selected Base Font: {font_name}")
-    
-    print("[AI Engine] Computing advanced CV metrics (Aspect, Slant, Jaggedness, Unevenness)...")
-    cv_metrics = analyze_handwriting_bytes(file_bytes)
-    print(f"[AI Engine] Metrics: {cv_metrics}")
-    
-    print(f"[AI Engine] Sculpting TTF dynamically based on {font_name}...")
-    ttf_bytes = generate_custom_ttf_bytes(cv_metrics, font_name)
-    
-    b64_str = base64.b64encode(ttf_bytes).decode('utf-8')
-    data_url = f"data:font/ttf;base64,{b64_str}"
-    
-    return jsonify({
-        "status": "success",
-        "message": f"Font berhasil dikustomisasi secara advanced berbasis {font_name}!",
-        "font_name": font_name,
-        "font_url": data_url
-    }), 200
+    if not user_id:
+        return jsonify({"error": "user_id is missing from request"}), 400
+        
+    try:
+        image_bytes = file.read()
+        
+        # 1 & 2. Glyph Segmentation & Polygon Extraction (OpenCV)
+        print("[AI Engine] Mengekstrak kontur karakter dari gambar...")
+        contours_list = extract_character_contours(image_bytes)
+        print(f"[AI Engine] Ditemukan {len(contours_list)} karakter.")
+        
+        # 3. Kompilasi Font (FontTools)
+        print("[AI Engine] Mengompilasi kontur menjadi file TTF...")
+        ttf_bytes = build_ttf_font(contours_list, font_name)
+        
+        # 4. Supabase Storage Integration
+        bucket_name = "custom_fonts"
+        safe_font_name = secure_filename(f"JagoCustom_{font_name.replace(' ', '')}.ttf")
+        storage_path = f"{user_id}/{str(uuid.uuid4())[:8]}_{safe_font_name}"
+        
+        print(f"[AI Engine] Mengunggah file .ttf fisik ke Storage: {storage_path}...")
+        try:
+            supabase.storage.from_(bucket_name).upload(
+                file=ttf_bytes,
+                path=storage_path,
+                file_options={"content-type": "font/ttf"}
+            )
+        except Exception as upload_err:
+            if "Bucket not found" in str(upload_err):
+                print(f"[AI Engine] Bucket '{bucket_name}' belum ada. Membuat bucket secara otomatis...")
+                try:
+                    # Attempt to create bucket
+                    supabase.storage.create_bucket(bucket_name, {"public": True})
+                    # Retry upload
+                    supabase.storage.from_(bucket_name).upload(
+                        file=ttf_bytes,
+                        path=storage_path,
+                        file_options={"content-type": "font/ttf"}
+                    )
+                except Exception as create_err:
+                    raise Exception(f"Gagal membuat bucket '{bucket_name}' secara otomatis. Anda mungkin harus membuatnya secara manual di Supabase Dashboard. Detail: {str(create_err)}")
+            else:
+                raise upload_err
+        
+        public_url = supabase.storage.from_(bucket_name).get_public_url(storage_path)
+        
+        # 5. Insert ke Supabase Database
+        print(f"[AI Engine] Menyimpan metadata ke tabel 'fonts'...")
+        db_res = supabase.table("fonts").insert({
+            "user_id": user_id,
+            "name": f"JagoCustom {font_name}",
+            "font_url": public_url
+        }).execute()
+        
+        if not db_res.data:
+            raise Exception("Gagal insert ke tabel fonts.")
+            
+        font_record = db_res.data[0]
+        
+        return jsonify({
+            "status": "success",
+            "message": "True Vector Font Generated & Stored Successfully",
+            "font_name": font_record['name'],
+            "font_url": public_url,
+            "font_id": font_record['id']
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    print("JagoNota AI Font Engine (Advanced) berjalan di port 5000...")
+    print("JagoNota True Vector Font Engine berjalan di port 5000...")
     app.run(debug=True, port=5000)

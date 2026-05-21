@@ -57,6 +57,7 @@ export default function FontManager({ onBack }: Props) {
     const [aiUploadedImage, setAiUploadedImage] = useState<string | null>(null);
     const [generatedFontUrl, setGeneratedFontUrl] = useState('');
     const [generatedFontName, setGeneratedFontName] = useState('');
+    const [generatedFontId, setGeneratedFontId] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [aiFontNameInput, setAiFontNameInput] = useState('');
     const [aiLetterSpacing, setAiLetterSpacing] = useState(0);
@@ -228,9 +229,8 @@ export default function FontManager({ onBack }: Props) {
             if (aiPrompt.trim()) {
                 formData.append('prompt', aiPrompt.trim());
             }
-            const geminiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-            if (geminiKey) {
-                formData.append('geminiKey', geminiKey);
+            if (currentUserId) {
+                formData.append('user_id', currentUserId);
             }
 
             const apiRes = await fetch('http://localhost:5000/api/generate-font', {
@@ -257,6 +257,7 @@ export default function FontManager({ onBack }: Props) {
             setExtractedCSS('');
             setFontUrl(finalUrl); 
             setNewFontName(fontFamily);
+            if (data.font_id) setGeneratedFontId(data.font_id);
             setPreviewRenderKey(Date.now());
             setUnifiedStep('preview');
         } catch (error: any) {
@@ -274,23 +275,18 @@ export default function FontManager({ onBack }: Props) {
     // ── UNIFIED: Save font to Supabase ──
     const handleSaveFont = async () => {
         const saveName = newFontName.trim();
-        if (!saveName || !currentUserId) return;
+        if (!saveName || !currentUserId || !generatedFontId) return;
 
-        let finalFontUrl = fontUrl;
-
-        // Bypassing Supabase Storage bucket because of user permission issues.
-        // The base64 data URL from the Python engine will be saved directly into the PostgreSQL text column.
-
-        const { data, error } = await supabase.from('fonts').insert([{
-            user_id: currentUserId,
+        // Backend already inserted the font and uploaded to Bucket. 
+        // We just update the name and spacing preferences.
+        const { data, error } = await supabase.from('fonts').update({
             name: saveName,
-            font_url: finalFontUrl,
             line_spacing: lineSpacing,
             letter_spacing: letterSpacing
-        }]).select().single();
+        }).eq('id', generatedFontId).select().single();
 
         if (error || !data) {
-            alert('Gagal menyimpan font: ' + (error?.message ?? 'Tidak diketahui'));
+            alert('Gagal memperbarui font: ' + (error?.message ?? 'Tidak diketahui'));
             return;
         }
 
@@ -299,22 +295,27 @@ export default function FontManager({ onBack }: Props) {
             label: data.name,
             value: `custom-font-${data.id}`,
             isCustom: true,
-            cssText: generatedCssText,
-            fontFamilyName: generatedFontFamilyName || data.name,
-            font_url: finalFontUrl,
-            lineSpacing: data.line_spacing,
-            letterSpacing: data.letter_spacing,
-            user_id: data.user_id,
+            cssText: generatedCssText || extractedCSS,
+            fontFamilyName: data.name,
+            font_url: data.font_url,
+            lineSpacing,
+            letterSpacing,
+            user_id: currentUserId,
             created_at: data.created_at
         };
 
-        const updatedFonts = [...fonts, newFont];
-        syncCustomFonts(updatedFonts.filter(f => f.isCustom));
+        const existingFontsStr = localStorage.getItem('jagonota_custom_fonts');
+        const customFonts = existingFontsStr ? JSON.parse(existingFontsStr) : [];
+        const updatedCustomFonts = [...customFonts, newFont];
+        
+        syncCustomFonts(updatedCustomFonts.filter(f => f.isCustom));
+        
         // Notify other components about the new font
         window.dispatchEvent(new Event('storage'));
 
         // Reset semua state setelah simpan
         handleResetUnified();
+        alert('Font berhasil disimpan ke koleksi!');
     };
 
     // ── UNIFIED: Reset / cancel ──

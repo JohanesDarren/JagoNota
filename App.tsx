@@ -7,6 +7,7 @@ import FontManager from './components/FontManager';
 import TemplateManager from './components/TemplateManager';
 import ProjectManager from './components/ProjectManager';
 import LoginPage from './components/LoginPage';
+import UpdatePasswordPage from './components/UpdatePasswordPage';
 import { supabase } from './utils';
 
 const sanitizeFontFamily = (name: string) =>
@@ -93,7 +94,7 @@ const PRESET_TEMPLATES: DocumentTemplate[] = [
   }
 ];
 
-export type ViewState = 'home' | 'login' | 'font-manager' | 'template-manager' | 'project-manager' | 'editor';
+export type ViewState = 'home' | 'login' | 'font-manager' | 'template-manager' | 'project-manager' | 'editor' | 'update-password';
 
 export default function App() {
   const [view, setView] = useState<ViewState>('home');
@@ -102,6 +103,13 @@ export default function App() {
   const [projects, setProjects] = useState<DocumentProject[]>([]);
   const [activeItem, setActiveItem] = useState<{ type: 'template' | 'project', doc: DocumentTemplate | DocumentProject } | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.includes('type=recovery')) {
+      setView('update-password');
+    }
+  }, []);
 
   React.useEffect(() => {
     if (isLoggedIn) {
@@ -390,6 +398,7 @@ export default function App() {
   }
 
   if (view === 'login') return <LoginPage onLogin={() => { setIsLoggedIn(true); setView('home'); }} onBack={navigateBack} />;
+  if (view === 'update-password') return <UpdatePasswordPage onSuccess={() => setView('login')} onCancel={navigateBack} />;
   if (view === 'font-manager') return <FontManager onBack={navigateBack} />;
   if (view === 'template-manager') return <TemplateManager templates={templates} currentUserId={currentUserId} onStartEditor={startTemplateEditor} onDeleteTemplate={handleDeleteTemplate} onRenameTemplate={handleRenameTemplate} onBack={navigateBack} />;
   if (view === 'project-manager') return <ProjectManager projects={projects} templates={templates} onStartProject={startProjectEditor} onDeleteProject={handleDeleteProject} onRenameProject={handleRenameProject} onBack={navigateBack} />;
