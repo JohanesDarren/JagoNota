@@ -19,7 +19,31 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 app = Flask(__name__)
-CORS(app)
+
+# --- CORS Configuration ---
+# Explicitly allow all required origins, methods, and headers for multipart/form-data
+# and JSON requests from the Vite dev server (port 3000) and any production domain.
+CORS(app,
+    resources={r"/api/*": {
+        "origins": [
+            "http://localhost:3005",   # Vite dev server (JagoNota)
+            "http://127.0.0.1:3005",
+            "http://localhost:3000",   # Fallback / Old port
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",   # Alternative Vite port
+            "http://127.0.0.1:5173",
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": [
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "Accept",
+        ],
+        "supports_credentials": False,
+        "max_age": 600,  # Cache preflight for 10 minutes
+    }}
+)
 
 # Character set to map sequentially (A-Z, a-z, 0-9)
 CHAR_SET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -222,4 +246,6 @@ def generate_font():
 
 if __name__ == '__main__':
     print("JagoNota True Vector Font Engine berjalan di port 5000...")
-    app.run(debug=True, port=5000)
+    # host='0.0.0.0' is required to accept connections from any interface,
+    # not just the closed loopback (127.0.0.1). This is what fixes 'Failed to fetch'.
+    app.run(debug=True, host='0.0.0.0', port=5000)

@@ -149,14 +149,14 @@ export default function ElementNode({ element, isSelected, isLocked, onSelect, o
       switch (element.type) {
           case 'text':
               const t = element as TextElement;
-              const isCustomFont = t.fontFamily.startsWith('custom-font-');
+              const isClassBasedFont = t.fontFamily.startsWith('custom-font-') || t.fontFamily.startsWith('sys-font-') || t.fontFamily.startsWith('font-');
               const roughness = t.roughness ?? 0;
               const textShadow = roughness > 0 ? `0 ${Math.min(roughness * 0.2, 1.2)}px ${Math.min(roughness * 0.8, 2.4)}px rgba(0,0,0,0.15)` : undefined;
               const filter = roughness > 0 ? `blur(${Math.min(roughness * 0.08, 1.2)}px)` : undefined;
               return (
-                  <div className={isCustomFont ? t.fontFamily : ''} style={{
+                  <div className={isClassBasedFont ? t.fontFamily : ''} style={{
                       width: '100%', height: '100%',
-                      fontFamily: !isCustomFont ? t.fontFamily : undefined,
+                      fontFamily: !isClassBasedFont ? t.fontFamily : undefined,
                       fontSize: t.fontSize,
                       color: t.color,
                       textAlign: t.textAlign,
@@ -218,11 +218,12 @@ export default function ElementNode({ element, isSelected, isLocked, onSelect, o
               );
           case 'table':
               const tb = element as TableElement;
+              const isTableClassBasedFont = tb.fontFamily.startsWith('custom-font-') || tb.fontFamily.startsWith('sys-font-') || tb.fontFamily.startsWith('font-');
               return (
                   <div style={{ width: '100%', height: '100%', border: `1px solid ${tb.borderColor || '#000'}`, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent' }}>
                       <div style={{ display: 'flex', backgroundColor: tb.headerBgColor || '#f9fafb', borderBottom: `1px solid ${tb.borderColor || '#000'}`, fontWeight: 'bold' }}>
                           {tb.columns.map((c, i) => (
-                              <div key={c.id} style={{ position: 'relative', flex: c.width, padding: '4px 8px', borderRight: i < tb.columns.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none', color: tb.textColor || '#000', fontSize: tb.fontSize || 12, fontFamily: tb.fontFamily }}>
+                              <div key={c.id} className={isTableClassBasedFont ? tb.fontFamily : ''} style={{ position: 'relative', flex: c.width, padding: '4px 8px', borderRight: i < tb.columns.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none', color: tb.textColor || '#000', fontSize: tb.fontSize || 12, fontFamily: !isTableClassBasedFont ? tb.fontFamily : undefined }}>
                                   {c.header}
                                   {isSelected && !isLocked && i < tb.columns.length - 1 && (
                                       <div 
@@ -237,7 +238,7 @@ export default function ElementNode({ element, isSelected, isLocked, onSelect, o
                           {tb.rows.map((r, ri) => (
                               <div key={ri} style={{ position: 'relative', display: 'flex', flex: tb.rowHeights?.[ri] ?? 1, borderBottom: ri < tb.rows.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none' }}>
                                   {r.map((cell, ci) => (
-                                      <div key={ci} style={{ position: 'relative', flex: tb.columns[ci].width, padding: '4px 8px', borderRight: ci < tb.columns.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none', color: tb.textColor || '#000', fontSize: tb.fontSize || 12, fontFamily: tb.fontFamily }}>
+                                      <div key={ci} className={isTableClassBasedFont ? tb.fontFamily : ''} style={{ position: 'relative', flex: tb.columns[ci].width, padding: '4px 8px', borderRight: ci < tb.columns.length - 1 ? `1px solid ${tb.borderColor || '#000'}` : 'none', color: tb.textColor || '#000', fontSize: tb.fontSize || 12, fontFamily: !isTableClassBasedFont ? tb.fontFamily : undefined }}>
                                           {cell}
                                           {isSelected && !isLocked && ci < tb.columns.length - 1 && (
                                               <div 

@@ -20,6 +20,20 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
     type Mode = 'login' | 'register' | 'forgot_password';
     const [mode, setMode] = useState<Mode>('login');
 
+    // Maps raw Supabase error messages to safe, user-friendly Indonesian strings.
+    // NEVER expose err.message directly — it can reveal internal details (user enumeration, infra).
+    const sanitizeAuthError = (err: any): string => {
+        const msg = (err?.message ?? '').toLowerCase();
+        if (msg.includes('invalid login credentials')) return 'Email atau password salah.';
+        if (msg.includes('email not confirmed')) return 'Email belum dikonfirmasi. Periksa inbox Anda.';
+        if (msg.includes('rate limit') || msg.includes('429') || msg.includes('email rate limit')) return 'Terlalu banyak percobaan. Coba lagi dalam beberapa menit.';
+        if (msg.includes('user already registered')) return 'Email ini sudah terdaftar. Silakan masuk.';
+        if (msg.includes('password should be at least')) return 'Password minimal 6 karakter.';
+        if (msg.includes('unable to validate email')) return 'Format email tidak valid.';
+        // Default — do NOT expose internal error details to the user
+        return 'Terjadi kesalahan. Silakan coba lagi.';
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -28,12 +42,15 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
 
         try {
             if (mode === 'forgot_password') {
+                // redirectTo must point to the exact URL that contains the UPDATE_PASSWORD view.
+                // Using a hash so it works on any host (local, prod, etc.) without server routing.
+                const redirectTo = `${window.location.origin}${window.location.pathname}#update-password`;
                 const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-                    redirectTo: window.location.origin,
+                    redirectTo,
                 });
                 if (resetError) throw resetError;
                 
-                setSuccessMsg("Jika email Anda terdaftar, Anda akan menerima tautan pemulihan password sesaat lagi.");
+                setSuccessMsg("Jika email Anda terdaftar, Anda akan menerima tautan pemulihan password sesaat lagi. Periksa folder Spam jika tidak muncul.");
             } else if (mode === 'register') {
                 const { data, error: signUpError } = await supabase.auth.signUp({
                     email: email.trim(),
@@ -48,7 +65,8 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                 if (signUpError) throw signUpError;
                 
                 if (data.user) {
-                    onLogin();
+                    setMode('login');
+                    setSuccessMsg("Pendaftaran berhasil. Silakan masuk.");
                 }
             } else {
                 const { data, error: signInError } = await supabase.auth.signInWithPassword({
@@ -63,7 +81,7 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                 }
             }
         } catch (err: any) {
-            setError(err.message || 'Terjadi kesalahan saat memproses permintaan.');
+            setError(sanitizeAuthError(err));
         } finally {
             setLoading(false);
         }

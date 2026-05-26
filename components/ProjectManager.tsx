@@ -78,7 +78,7 @@ export default function ProjectManager({ projects, templates, onStartProject, on
           templateId: template.id,
           type: template.type,
           date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
-          document: JSON.parse(JSON.stringify(template)), // clone template
+          document: structuredClone(template), // clone template
           projectElements: []
       };
       setShowModal(false);

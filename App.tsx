@@ -105,16 +105,41 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   React.useEffect(() => {
+    // 1. Bootstrap auth state from real Supabase session on page load.
+    //    Without this, refreshing the page would lose the login state.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setIsLoggedIn(true);
+    });
+
+    // 2. Handle the custom #update-password hash route appended by our redirectTo
     const hash = window.location.hash;
-    if (hash && hash.includes('type=recovery')) {
+    if (hash && (hash.includes('type=recovery') || hash.includes('update-password'))) {
       setView('update-password');
     }
+
+    // 3. Robustly handle Supabase PASSWORD_RECOVERY event via the auth state listener.
+    //    Also keeps isLoggedIn in sync with the real session lifecycle.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setView('update-password');
+      }
+      // Sync login state with actual session (handles token expiry, logout from other tabs, etc.)
+      if (event === 'SIGNED_IN') setIsLoggedIn(true);
+      if (event === 'SIGNED_OUT') setIsLoggedIn(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   React.useEffect(() => {
     if (isLoggedIn) {
       const fetchData = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user) {
+          console.error('[Auth] Session expired or unavailable:', userError?.message);
+          setIsLoggedIn(false);
+          return;
+        }
         if (user) {
           setCurrentUserId(user.id);
           
@@ -127,7 +152,7 @@ export default function App() {
           if (templatesData) {
             const loadedTemplates = templatesData.map(t => ({
               ...t.layout_data,
-              id: t.layout_data.id || `tmpl_${Date.now()}_${Math.random()}`,
+              id: t.layout_data.id || crypto.randomUUID(),
               db_id: t.id,
               user_id: t.user_id,
               is_default: t.is_default ?? t.user_id == null
@@ -148,7 +173,7 @@ export default function App() {
           if (projectsData) {
              const loadedProjects = projectsData.map(p => ({
                  ...p.content,
-                 id: p.content.id || `proj_${Date.now()}_${Math.random()}`
+                 id: p.content.id || crypto.randomUUID()
              })) as DocumentProject[];
              setProjects(loadedProjects);
           }
@@ -193,44 +218,48 @@ export default function App() {
   }, [isLoggedIn]);
 
   React.useEffect(() => {
-    // Inject Custom Fonts CSS globally
-    const saved = localStorage.getItem('jagonota_custom_fonts');
-    if (saved) {
+    // Inject Custom Fonts CSS globally.
+    // Using a storage event listener (not [view]) so this only re-runs when fonts actually change,
+    // not on every navigation — prevents redundant DOM mutations.
+    const injectFonts = () => {
+      const saved = localStorage.getItem('jagonota_custom_fonts');
+      if (!saved) return;
       try {
         const fonts = JSON.parse(saved);
-        const style = document.createElement('style');
         let css = '';
         fonts.forEach((f: any) => {
           if (f.cssText) {
              css += `.${f.value} { ${f.cssText} display: inline-block; }\n`;
           } else {
-             // Fallback
              css += `.${f.value} { font-family: 'Indie Flower', cursive; letter-spacing: 1px; display: inline-block; }\n`;
           }
-        });
-        style.textContent = css;
-        style.id = 'jagonota-custom-fonts-style';
-        
-        const existing = document.getElementById('jagonota-custom-fonts-style');
-        if (existing) existing.remove();
-        
-        document.head.appendChild(style);
-        
-        // Ensure Google Fonts exist for the parsed fonts
-        fonts.forEach((f: any) => {
-           if (f.fontFamilyName && !document.getElementById('font-' + f.fontFamilyName.replace(/\s+/g, ''))) {
+          // Ensure Google Fonts link exists
+          if (f.fontFamilyName) {
+            const fontId = 'font-' + f.fontFamilyName.replace(/\s+/g, '');
+            if (!document.getElementById(fontId)) {
               const link = document.createElement('link');
-              link.id = 'font-' + f.fontFamilyName.replace(/\s+/g, '');
+              link.id = fontId;
               link.rel = 'stylesheet';
               link.href = `https://fonts.googleapis.com/css2?family=${f.fontFamilyName.replace(/\s+/g, '+')}&display=swap`;
               document.head.appendChild(link);
-           }
+            }
+          }
         });
+        const existing = document.getElementById('jagonota-custom-fonts-style');
+        if (existing) existing.remove();
+        const style = document.createElement('style');
+        style.id = 'jagonota-custom-fonts-style';
+        style.textContent = css;
+        document.head.appendChild(style);
       } catch (e) {
          console.error('Error loading custom fonts', e);
       }
-    }
-  }, [view]);
+    };
+
+    injectFonts(); // Run on mount
+    window.addEventListener('storage', injectFonts); // React to font updates from FontManager
+    return () => window.removeEventListener('storage', injectFonts);
+  }, []); // ✅ Empty dep array — eliminates re-injection on every view navigation
 
   const handleNavigation = (targetView: ViewState) => {
     if (!isLoggedIn && targetView !== 'home') {
@@ -248,7 +277,7 @@ export default function App() {
       return;
     }
 
-    const templateCopy = JSON.parse(JSON.stringify(template)) as DocumentTemplate;
+    const templateCopy = structuredClone(template) as DocumentTemplate;
     if (isAppTemplate) {
       // Give a unique draft id so it doesn't conflict with the original preset
       templateCopy.id = `${template.id}_draft_${Date.now()}`;
@@ -267,11 +296,11 @@ export default function App() {
     setView('editor');
   };
   const startProjectEditor = (project: DocumentProject, isNew: boolean = false) => {
+    const clonedProject = structuredClone(project);
+    // setActiveItem is called once unconditionally — no duplicate call needed
+    setActiveItem({ type: 'project', doc: clonedProject });
     if (isNew) {
-      setActiveItem({ type: 'project', doc: project });
-      setProjects(prev => [project, ...prev]);
-    } else {
-      setActiveItem({ type: 'project', doc: project });
+      setProjects(prev => [clonedProject, ...prev]);
     }
     setView('editor');
   }

@@ -161,12 +161,14 @@ export default function FontManager({ onBack }: Props) {
     };
 
     useEffect(() => {
+        let isMounted = true; // ✅ Guard against state updates on unmounted component
         const loadFonts = async () => {
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
+            if (!user || !isMounted) return;
             setCurrentUserId(user.id);
 
             const { data, error } = await supabase.from('fonts').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
+            if (!isMounted) return;
             if (error) {
                 console.error('Gagal memuat font:', error.message);
                 return;
@@ -186,9 +188,10 @@ export default function FontManager({ onBack }: Props) {
                 created_at: font.created_at
             }));
 
-            syncCustomFonts(customFonts);
+            if (isMounted) syncCustomFonts(customFonts);
         };
         loadFonts();
+        return () => { isMounted = false; }; // ✅ Cleanup
     }, []);
 
     // ── UNIFIED: Handle file upload + decide path based on prompt ──
@@ -233,13 +236,36 @@ export default function FontManager({ onBack }: Props) {
                 formData.append('user_id', currentUserId);
             }
 
-            const apiRes = await fetch('http://localhost:5000/api/generate-font', {
-                method: 'POST',
-                body: formData
-            });
+            // Use a relative URL so the Vite dev proxy forwards it to Flask at :5000.
+            // In production, this should point to your actual API server hostname.
+            // DO NOT use 'http://localhost:5000' — that triggers a cross-origin preflight.
+            const FONT_API_URL = '/api/generate-font';
+
+            let apiRes: Response;
+            try {
+                apiRes = await fetch(FONT_API_URL, {
+                    method: 'POST',
+                    // NOTE: Do NOT manually set 'Content-Type' for FormData.
+                    // The browser sets it automatically with the correct multipart boundary.
+                    body: formData,
+                });
+            } catch (networkError: any) {
+                // This catch block only fires on true network failures (DNS error, refused connection).
+                // It means Flask is NOT running. CORS issues also surface here as TypeError.
+                throw new Error(
+                    `Tidak dapat terhubung ke AI Engine. Pastikan Flask berjalan:\n` +
+                    `  python font_engine.py\n\nDetail: ${networkError.message}`
+                );
+            }
 
             if (!apiRes.ok) {
-                throw new Error(`Server error: ${apiRes.status}`);
+                // Server responded but with a non-2xx status — parse the JSON error if available
+                let serverMsg = `Server error: HTTP ${apiRes.status}`;
+                try {
+                    const errBody = await apiRes.json();
+                    if (errBody.error) serverMsg = errBody.error;
+                } catch (_) { /* response wasn't JSON */ }
+                throw new Error(serverMsg);
             }
 
             const data = await apiRes.json();

@@ -22,7 +22,14 @@ export const numberToWords = (num: number): string => {
   return "Angka terlalu besar";
 };
 
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string | undefined;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    '[JagoNota] Missing Supabase configuration.\n' +
+    'Ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in your .env file.'
+  );
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

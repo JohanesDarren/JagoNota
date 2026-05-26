@@ -23,6 +23,13 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
         }
     }, []);
 
+    // Redirect to login 3 seconds after success — using useEffect for proper cleanup
+    useEffect(() => {
+        if (!success) return;
+        const timer = setTimeout(() => onSuccess(), 3000);
+        return () => clearTimeout(timer); // ✅ Prevents firing on unmounted component
+    }, [success, onSuccess]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -47,9 +54,7 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
             if (updateError) throw updateError;
 
             setSuccess(true);
-            setTimeout(() => {
-                onSuccess();
-            }, 3000);
+            // Redirect is handled by the useEffect below to allow cleanup on unmount
         } catch (err: any) {
             setError(err.message || 'Gagal memperbarui password.');
         } finally {

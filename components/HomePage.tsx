@@ -39,7 +39,7 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
               <nav className="fixed top-0 left-0 right-0 bg-white/70 dark:bg-gray-900/80 backdrop-blur-xl z-50 border-b border-gray-200 dark:border-gray-800 shadow-sm">
                   <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                          <img src={isDark ? "/JagoNota BW.png" : "/JagoNota.png"} alt="JagoNota Logo" className="h-10 object-contain" />
+                          <img src={isDark ? "/JagoNota BW.png" : "/JagoNota.png"} alt="JagoNota Logo" className="h-14 object-contain" />
                       </div>
                       
                       <div className="hidden md:flex items-center gap-8 text-sm font-bold text-gray-600 dark:text-gray-300">
@@ -129,7 +129,7 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
         <nav className="fixed top-0 left-0 right-0 bg-white/70 dark:bg-gray-900/80 backdrop-blur-xl z-50 border-b border-white/20 dark:border-gray-800 transition-colors duration-300 shadow-sm">
             <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <img src={isDark ? "/JagoNota BW.png" : "/JagoNota.png"} alt="JagoNota Logo" className="h-10 object-contain" />
+                    <img src={isDark ? "/JagoNota BW.png" : "/JagoNota.png"} alt="JagoNota Logo" className="h-14 object-contain" />
                 </div>
                 
                 <div className="hidden md:flex items-center gap-8 text-sm font-bold text-gray-600 dark:text-gray-300">
@@ -179,7 +179,7 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
                         onClick={() => onNavigate('project-manager')}
                         className="bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-bold text-lg transition-all flex items-center gap-3 shadow-xl shadow-[#1800ad]/20 dark:shadow-blue-900/50"
                     >
-                        Login <ArrowRight size={20} />
+                        Ayo mulai! <ArrowRight size={20} />
                     </button>
                 </div>
             </div>
@@ -370,7 +370,10 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
                         className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#1800ad] dark:focus:ring-blue-500 transition-all h-32 mb-4"
                     />
 
-                    <button className="w-full bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg">
+                    <button 
+                        onClick={() => alert('Terima kasih atas ulasan Anda!')}
+                        className="w-full bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg relative z-10 pointer-events-auto"
+                    >
                         Kirim Ulasan
                     </button>
                 </div>
@@ -382,7 +385,7 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
             <div className="max-w-7xl mx-auto px-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-16">
                     <div className="flex flex-col items-start">
-                        <img src="/JagoNota BW.png" alt="JagoNota Logo" className="h-10 object-contain mb-6 opacity-90" />
+                        <img src="/JagoNota BW.png" alt="JagoNota Logo" className="h-14 object-contain mb-6 opacity-90" />
                         <p className="text-blue-200 dark:text-gray-400 text-sm leading-relaxed mb-6 font-medium max-w-xs">
                             Solusi pembuatan nota dan kwitansi yang profesional, cepat, dan terpercaya. Bagian dari ekosistem JagoAI.
                         </p>
