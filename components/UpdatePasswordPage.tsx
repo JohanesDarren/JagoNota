@@ -15,12 +15,50 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
+    const [sessionReady, setSessionReady] = useState(false);
 
     useEffect(() => {
-        // Clear the hash from the URL so it doesn't stay there after refresh
-        if (window.location.hash) {
-            window.history.replaceState(null, '', window.location.pathname);
-        }
+        // Parse access_token and refresh_token from the URL hash FIRST,
+        // then call setSession() to establish the recovery session,
+        // and only after that clear the hash from the URL bar.
+        const hash = window.location.hash;
+
+        const parseAndSetSession = async () => {
+            if (hash && hash.includes('access_token')) {
+                const params = new URLSearchParams(hash.substring(1));
+                const accessToken = params.get('access_token');
+                const refreshToken = params.get('refresh_token');
+
+                if (accessToken && refreshToken) {
+                    const { error: sessionError } = await supabase.auth.setSession({
+                        access_token: accessToken,
+                        refresh_token: refreshToken,
+                    });
+
+                    // Now it's safe to clear the hash
+                    window.history.replaceState(null, '', window.location.pathname);
+
+                    if (sessionError) {
+                        setError('Tautan tidak valid atau sudah kedaluwarsa. Silakan minta reset password baru.');
+                    } else {
+                        setSessionReady(true);
+                    }
+                } else {
+                    window.history.replaceState(null, '', window.location.pathname);
+                    setError('Tautan reset tidak valid. Silakan minta reset password baru.');
+                }
+            } else {
+                // No hash — check if a recovery session already exists (e.g. re-render)
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    setSessionReady(true);
+                } else {
+                    setError('Tautan tidak valid atau sudah kedaluwarsa. Silakan minta reset password baru.');
+                }
+            }
+        };
+
+        parseAndSetSession();
     }, []);
 
     // Redirect to login 3 seconds after success — using useEffect for proper cleanup
@@ -52,6 +90,9 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
             });
 
             if (updateError) throw updateError;
+            
+            // Sign out to clear the recovery session and force a clean login
+            await supabase.auth.signOut();
 
             setSuccess(true);
             // Redirect is handled by the useEffect below to allow cleanup on unmount
@@ -104,6 +145,12 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
                 <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
                     <div className="bg-white/60 dark:bg-gray-800/80 backdrop-blur-sm py-8 px-4 shadow-xl border border-white/60 dark:border-gray-700 sm:rounded-[2rem] sm:px-10 transition-colors duration-300">
                         <form className="space-y-6" onSubmit={handleSubmit}>
+                            {!sessionReady && !error && (
+                                <div className="p-3 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 rounded-xl text-sm font-medium text-center flex items-center justify-center gap-2">
+                                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                                    Memverifikasi tautan reset...
+                                </div>
+                            )}
                             {error && (
                                 <div className="p-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl text-sm font-medium text-center">
                                     {error}
@@ -147,10 +194,10 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
                             <div>
                                 <button 
                                     type="submit" 
-                                    disabled={loading}
+                                    disabled={loading || !sessionReady}
                                     className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-lg shadow-[#1800ad]/20 dark:shadow-blue-900/50 text-sm font-bold text-white bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1800ad] dark:focus:ring-offset-gray-900 dark:focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {loading ? 'Menyimpan...' : 'Perbarui Password'} <ArrowRight size={16} />
+                                    {loading ? 'Menyimpan...' : !sessionReady ? 'Memverifikasi...' : 'Perbarui Password'} <ArrowRight size={16} />
                                 </button>
                             </div>
                             

@@ -272,7 +272,7 @@ export default function ProjectEditor({ project, onUpdateProject, onBack }: Prop
               <div
                   className={isSystemFont || isCustomFont ? el.fontFamily : ''}
                   style={{
-                      width: '100%', height: '100%', overflow: 'hidden',
+                      width: '100%', height: '100%',
                       fontSize: el.fontSize,
                       fontWeight: el.fontWeight,
                       fontStyle: el.fontStyle,

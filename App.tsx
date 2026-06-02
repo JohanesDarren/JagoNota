@@ -84,7 +84,7 @@ const PRESET_TEMPLATES: DocumentTemplate[] = [
     user_id: null,
     is_default: true,
     elements: [
-       { id: 't6', type: 'text', content: 'KWITANSI', x: 310, y: 20, width: 180, height: 40, fontFamily: 'font-serif', fontSize: 28, color: '#111827', textAlign: 'center', fontWeight: 'bold' },
+       { id: 't6', type: 'text', content: 'KWITANSI', x: 300, y: 20, width: 200, height: 40, fontFamily: 'font-serif', fontSize: 28, color: '#111827', textAlign: 'center', fontWeight: 'bold' },
        { id: 's5', type: 'shape', shapeType: 'line', x: 40, y: 70, width: 720, height: 2, strokeColor: '#0f172a', strokeWidth: 2 },
        { id: 't7', type: 'text', content: 'Telah Terima Dari', x: 40, y: 100, width: 180, height: 22, fontFamily: 'font-sans', fontSize: 14, color: '#475569', textAlign: 'left' },
        { id: 's6', type: 'shape', shapeType: 'rectangle', x: 230, y: 98, width: 530, height: 26, fillColor: '#ffffff', strokeColor: '#cbd5e1', strokeWidth: 1 },

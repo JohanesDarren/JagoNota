@@ -77,7 +77,7 @@ function createStandardKwitansi(name: string, userId: string): DocumentTemplate 
     backgroundColor: '#ffffff',
     user_id: userId,
     elements: [
-      { id: createId(), type: 'text', content: 'KWITANSI', x: 350, y: 20, width: 100, height: 30, fontFamily: 'font-serif', fontSize: 24, color: '#000000', textAlign: 'center', fontWeight: 'bold' },
+      { id: createId(), type: 'text', content: 'KWITANSI', x: 300, y: 20, width: 200, height: 30, fontFamily: 'font-serif', fontSize: 24, color: '#000000', textAlign: 'center', fontWeight: 'bold' },
       { id: createId(), type: 'shape', shapeType: 'line', x: 20, y: 60, width: 760, height: 2, strokeColor: '#000000', strokeWidth: 2 },
       { id: createId(), type: 'text', content: 'No.', x: 20, y: 70, width: 40, height: 20, fontFamily: 'font-sans', fontSize: 14, color: '#000000', textAlign: 'left' },
       { id: createId(), type: 'text', content: '...................', x: 50, y: 70, width: 150, height: 20, fontFamily: 'font-sans', fontSize: 14, color: '#000000', textAlign: 'left' },
@@ -119,7 +119,7 @@ const StaticPreview = ({ template }: { template: DocumentTemplate }) => {
             {template.elements.map(el => {
                 let content = null;
                 if (el.type === 'text') {
-                    content = <div style={{ fontSize: el.fontSize, fontWeight: el.fontWeight, color: el.color, textAlign: el.textAlign, width: '100%', height: '100%', overflow: 'hidden' }}>{el.content}</div>;
+                    content = <div style={{ fontSize: el.fontSize, fontWeight: el.fontWeight, color: el.color, textAlign: el.textAlign, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: el.textAlign === 'center' ? 'center' : el.textAlign === 'right' ? 'flex-end' : 'flex-start' }}>{el.content}</div>;
                 } else if (el.type === 'shape') {
                     if (el.shapeType === 'rectangle') {
                         content = <div style={{ width: '100%', height: '100%', backgroundColor: el.fillColor, border: el.strokeWidth ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none' }}></div>;

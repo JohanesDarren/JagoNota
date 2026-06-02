@@ -13,6 +13,19 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [ratingHover, setRatingHover] = useState<number | null>(null);
   const [rating, setRating] = useState<number>(0);
+  const [comment, setComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmitReview = () => {
+      setIsSubmitting(true);
+      // Menggunakan setTimeout untuk simulasi pengiriman data
+      setTimeout(() => {
+          alert('Terima kasih atas ulasan Anda!');
+          setComment('');
+          setRating(0);
+          setIsSubmitting(false);
+      }, 600);
+  };
 
   const faqs = [
       {
@@ -366,15 +379,18 @@ export default function HomePage({ onNavigate, isLoggedIn, onLogout }: Props) {
                     </div>
 
                     <textarea 
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
                         placeholder="Tulis ulasan Anda di sini (opsional)..."
                         className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#1800ad] dark:focus:ring-blue-500 transition-all h-32 mb-4"
                     />
 
                     <button 
-                        onClick={() => alert('Terima kasih atas ulasan Anda!')}
-                        className="w-full bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg relative z-10 pointer-events-auto"
+                        onClick={handleSubmitReview}
+                        disabled={isSubmitting}
+                        className={`w-full font-bold py-3.5 rounded-xl transition-colors shadow-lg relative z-10 pointer-events-auto ${isSubmitting ? 'bg-gray-400 dark:bg-gray-600 text-gray-200 cursor-not-allowed' : 'bg-[#1800ad] hover:bg-[#120085] dark:bg-blue-600 dark:hover:bg-blue-500 text-white'}`}
                     >
-                        Kirim Ulasan
+                        {isSubmitting ? 'Mengirim...' : 'Kirim Ulasan'}
                     </button>
                 </div>
             </div>

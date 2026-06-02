@@ -30,6 +30,8 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
         if (msg.includes('user already registered')) return 'Email ini sudah terdaftar. Silakan masuk.';
         if (msg.includes('password should be at least')) return 'Password minimal 6 karakter.';
         if (msg.includes('unable to validate email')) return 'Format email tidak valid.';
+        if (msg.includes('failed to fetch')) return 'Gagal terhubung ke server backend (localhost:3001).';
+        if (msg.includes('gagal membuat tautan') || msg.includes('gagal mengirim email')) return err.message;
         // Default — do NOT expose internal error details to the user
         return 'Terjadi kesalahan. Silakan coba lagi.';
     };
@@ -42,13 +44,26 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
 
         try {
             if (mode === 'forgot_password') {
-                // redirectTo must point to the exact URL that contains the UPDATE_PASSWORD view.
-                // Using a hash so it works on any host (local, prod, etc.) without server routing.
-                const redirectTo = `${window.location.origin}${window.location.pathname}#update-password`;
-                const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-                    redirectTo,
+                // redirectTo must be a clean base URL (no hash fragment).
+                // Supabase appends its own hash (#access_token=...&type=recovery) after validating the token.
+                // App.tsx detects type=recovery in the hash and routes to update-password view.
+                const redirectTo = `${window.location.origin}/`;
+                
+                const response = await fetch('http://localhost:3001/api/reset-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: email.trim(),
+                        redirectTo: redirectTo
+                    })
                 });
-                if (resetError) throw resetError;
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Gagal mengirim email reset.');
+                }
                 
                 setSuccessMsg("Jika email Anda terdaftar, Anda akan menerima tautan pemulihan password sesaat lagi. Periksa folder Spam jika tidak muncul.");
             } else if (mode === 'register') {
