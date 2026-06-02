@@ -9,7 +9,9 @@ import { fileURLToPath } from 'url';
 // Load .env from parent directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '../.env') });
+const envPath = path.join(__dirname, '../.env');
+dotenv.config({ path: envPath });
+console.log('Loaded backend .env from', envPath);
 
 const app = express();
 app.use(cors());
@@ -30,20 +32,59 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
   }
 });
 
-// Configure Nodemailer Transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'jagonota@gmail.com',
-    pass: 'krsp kixx dftu xyhe'
-  }
+// Configure Nodemailer Transporter using environment variables
+const smtpUser = process.env.EMAIL_SMTP_USER;
+const smtpPass = process.env.EMAIL_SMTP_PASS;
+const smtpService = process.env.EMAIL_SMTP_SERVICE || 'gmail';
+const smtpHost = process.env.EMAIL_SMTP_HOST || 'smtp.gmail.com';
+const smtpPort = Number(process.env.EMAIL_SMTP_PORT || 465);
+const smtpSecure = process.env.EMAIL_SMTP_SECURE ? process.env.EMAIL_SMTP_SECURE.toLowerCase() === 'true' : true;
+const emailFrom = process.env.EMAIL_FROM || '"JagoNota Support" <jagonota@gmail.com>';
+
+console.log('SMTP config loaded:', {
+  smtpUser: !!smtpUser,
+  smtpPass: !!smtpPass,
+  smtpHost,
+  smtpPort,
+  smtpSecure,
 });
+
+if (!smtpUser || !smtpPass) {
+  console.error('Missing SMTP credentials: set EMAIL_SMTP_USER and EMAIL_SMTP_PASS in .env');
+}
+
+const transporterConfig = {
+  host: smtpHost,
+  port: smtpPort,
+  secure: smtpSecure,
+};
+if (smtpUser && smtpPass) {
+  transporterConfig.auth = {
+    user: smtpUser,
+    pass: smtpPass,
+  };
+}
+
+const transporter = nodemailer.createTransport(transporterConfig);
+
+if (smtpUser && smtpPass) {
+  transporter.verify().then(() => {
+    console.log('SMTP transporter verified successfully.');
+  }).catch((verifyError) => {
+    console.error('SMTP transporter verification failed:', verifyError.message || verifyError);
+  });
+}
 
 app.post('/api/reset-password', async (req, res) => {
   const { email, redirectTo } = req.body;
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
+  }
+
+  if (!smtpUser || !smtpPass) {
+    return res.status(500).json({ error: 'SMTP belum dikonfigurasi. Set EMAIL_SMTP_USER dan EMAIL_SMTP_PASS di .env.' });
   }
 
   try {
@@ -52,21 +93,25 @@ app.post('/api/reset-password', async (req, res) => {
       type: 'recovery',
       email: email,
       options: {
-        redirectTo: redirectTo || 'http://localhost:5173/#update-password'
+        redirectTo: redirectTo || `${frontendUrl}/#update-password`
       }
     });
 
     if (error) {
       console.error("Error generating link:", error);
-      // We don't expose internal errors for security, just fail gracefully
-      return res.status(400).json({ error: 'Gagal membuat tautan reset. Pastikan email terdaftar.' });
+      return res.status(400).json({ error: error?.message || 'Gagal membuat tautan reset. Pastikan email terdaftar.' });
+    }
+
+    if (!data?.properties?.action_link) {
+      console.error('Invalid response from Supabase generateLink:', data);
+      return res.status(500).json({ error: 'Gagal membuat tautan reset. Silakan coba lagi nanti.' });
     }
 
     const resetLink = data.properties.action_link;
 
     // 2. Send the email using Nodemailer
     const mailOptions = {
-      from: '"JagoNota Support" <jagonota@gmail.com>',
+      from: process.env.EMAIL_FROM || '"JagoNota Support" <no-reply@jagonota.com>',
       to: email,
       subject: 'Pemulihan Password Akun JagoNota Anda',
       text: `Halo,\n\nKami menerima permintaan untuk mereset password akun JagoNota Anda.\n\nKlik tautan berikut untuk membuat password baru:\n${resetLink}\n\nTautan ini akan kedaluwarsa dalam 1 jam.\n\nJika Anda tidak merasa meminta reset password, silakan abaikan email ini.\n\n© 2026 JagoNota. All rights reserved.`,
@@ -132,7 +177,8 @@ app.post('/api/reset-password', async (req, res) => {
     res.status(200).json({ message: 'Tautan reset password berhasil dikirim.' });
   } catch (err) {
     console.error('Server error:', err);
-    res.status(500).json({ error: 'Terjadi kesalahan internal server saat mengirim email.' });
+    const message = err?.message || 'Terjadi kesalahan internal server saat mengirim email.';
+    res.status(500).json({ error: message });
   }
 });
 

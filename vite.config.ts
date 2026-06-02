@@ -9,15 +9,12 @@ export default defineConfig(({ mode }) => {
         port: 3005,
         host: '0.0.0.0',
         proxy: {
-          // Proxy all /api/* requests to the Flask backend.
-          // This eliminates CORS entirely in development — the browser only
-          // ever talks to localhost:3000, Vite forwards it to Flask server-side.
+          // Proxy all /api/* requests to the local Node backend.
+          // This avoids CORS issues during development.
           '/api': {
-            target: 'http://127.0.0.1:5000',
+            target: 'http://127.0.0.1:3001',
             changeOrigin: true,
             secure: false,
-            // Rewrite is NOT needed here since Flask also expects /api/* paths.
-            // rewrite: (path) => path.replace(/^\/api/, ''),
           },
         },
       },

@@ -112,8 +112,8 @@ export default function App() {
     });
 
     // 2. Handle the custom #update-password hash route appended by our redirectTo
-    const hash = window.location.hash;
-    if (hash && (hash.includes('type=recovery') || hash.includes('update-password'))) {
+    const hash = window.location.hash || window.location.search;
+    if (hash && (hash.includes('type=recovery') || hash.includes('access_token') || hash.includes('update-password'))) {
       setView('update-password');
     }
 

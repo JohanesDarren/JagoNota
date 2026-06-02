@@ -18,43 +18,42 @@ export default function UpdatePasswordPage({ onSuccess, onCancel }: UpdatePasswo
     const [sessionReady, setSessionReady] = useState(false);
 
     useEffect(() => {
-        // Parse access_token and refresh_token from the URL hash FIRST,
-        // then call setSession() to establish the recovery session,
-        // and only after that clear the hash from the URL bar.
-        const hash = window.location.hash;
+        const parseRecoveryParams = () => {
+            const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : '';
+            const search = window.location.search.startsWith('?') ? window.location.search.substring(1) : '';
+            const params = new URLSearchParams(hash || search);
+            return {
+                accessToken: params.get('access_token'),
+                refreshToken: params.get('refresh_token'),
+                type: params.get('type'),
+            };
+        };
 
         const parseAndSetSession = async () => {
-            if (hash && hash.includes('access_token')) {
-                const params = new URLSearchParams(hash.substring(1));
-                const accessToken = params.get('access_token');
-                const refreshToken = params.get('refresh_token');
+            const { accessToken, refreshToken } = parseRecoveryParams();
 
-                if (accessToken && refreshToken) {
-                    const { error: sessionError } = await supabase.auth.setSession({
-                        access_token: accessToken,
-                        refresh_token: refreshToken,
-                    });
+            if (accessToken && refreshToken) {
+                const { error: sessionError } = await supabase.auth.setSession({
+                    access_token: accessToken,
+                    refresh_token: refreshToken,
+                });
 
-                    // Now it's safe to clear the hash
-                    window.history.replaceState(null, '', window.location.pathname);
+                // Clear the token data from URL after consumption.
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
 
-                    if (sessionError) {
-                        setError('Tautan tidak valid atau sudah kedaluwarsa. Silakan minta reset password baru.');
-                    } else {
-                        setSessionReady(true);
-                    }
-                } else {
-                    window.history.replaceState(null, '', window.location.pathname);
-                    setError('Tautan reset tidak valid. Silakan minta reset password baru.');
-                }
-            } else {
-                // No hash — check if a recovery session already exists (e.g. re-render)
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    setSessionReady(true);
-                } else {
+                if (sessionError) {
                     setError('Tautan tidak valid atau sudah kedaluwarsa. Silakan minta reset password baru.');
+                } else {
+                    setSessionReady(true);
                 }
+                return;
+            }
+
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                setSessionReady(true);
+            } else {
+                setError('Tautan tidak valid atau sudah kedaluwarsa. Silakan minta reset password baru.');
             }
         };
 

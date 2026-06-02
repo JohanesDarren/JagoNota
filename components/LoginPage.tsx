@@ -30,8 +30,10 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
         if (msg.includes('user already registered')) return 'Email ini sudah terdaftar. Silakan masuk.';
         if (msg.includes('password should be at least')) return 'Password minimal 6 karakter.';
         if (msg.includes('unable to validate email')) return 'Format email tidak valid.';
-        if (msg.includes('failed to fetch')) return 'Gagal terhubung ke server backend (localhost:3001).';
-        if (msg.includes('gagal membuat tautan') || msg.includes('gagal mengirim email')) return err.message;
+        if (msg.includes('failed to fetch')) return 'Gagal terhubung ke server backend. Pastikan backend reset password berjalan.';
+        if (msg.includes('smtp')) return err.message;
+        if (msg.includes('gagal membuat tautan') || msg.includes('gagal mengirim email') || msg.includes('missing credentials for "plain"')) return err.message;
+        if (msg.includes('user with this email not found')) return 'Email tidak terdaftar. Silakan registrasi terlebih dahulu.';
         // Default — do NOT expose internal error details to the user
         return 'Terjadi kesalahan. Silakan coba lagi.';
     };
@@ -49,7 +51,7 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                 // App.tsx detects type=recovery in the hash and routes to update-password view.
                 const redirectTo = `${window.location.origin}/`;
                 
-                const response = await fetch('http://localhost:3001/api/reset-password', {
+                const response = await fetch('/api/reset-password', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -60,12 +62,21 @@ export default function LoginPage({ onLogin, onBack }: LoginPageProps) {
                     })
                 });
 
-                const data = await response.json();
+                const data = await response.json().catch(() => ({ error: 'Gagal membaca respons backend.' }));
                 if (!response.ok) {
-                    throw new Error(data.error || 'Gagal mengirim email reset.');
+                    const backendError = data.error || 'Gagal mengirim email reset.';
+                    // Fallback to Supabase built-in reset if backend endpoint fails.
+                    const { error: fallbackError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+                        redirectTo,
+                    });
+                    if (!fallbackError) {
+                        setSuccessMsg("Tautan reset password dikirim ke email Anda melalui Supabase. Buka inbox dan klik tautan untuk membuat password baru.");
+                        return;
+                    }
+                    throw new Error(backendError || fallbackError.message || 'Gagal mengirim email reset.');
                 }
-                
-                setSuccessMsg("Jika email Anda terdaftar, Anda akan menerima tautan pemulihan password sesaat lagi. Periksa folder Spam jika tidak muncul.");
+
+                setSuccessMsg("Tautan reset password dikirim ke email Anda. Buka inbox dan klik tautan untuk membuat password baru.");
             } else if (mode === 'register') {
                 const { data, error: signUpError } = await supabase.auth.signUp({
                     email: email.trim(),
